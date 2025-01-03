@@ -6,7 +6,7 @@ static ARTIFACT_DIR: &str = "/tmp/common-motion-2d-reg";
 use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
 pub fn run_wgpu() {
-    let device = WgpuDevice::default();
+    let device = WgpuDevice::DiscreteGpu(0);
     run::<Wgpu>(device);
 }
 

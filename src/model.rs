@@ -81,16 +81,19 @@ impl<B: Backend> RegressionModel<B> {
     pub fn forward_step(&self, item: KeyframeBatch<B>) -> RegressionOutput<B> {
         let output = self.forward(item.inputs.clone());
 
+        let max_len = std::cmp::max(item.inputs.dims()[1], item.targets.dims()[1]);
+
         // Create mask for padding
-        let mask = create_sequence_mask(
-            &item.input_lengths,
-            item.inputs.dims()[1],
-            &item.inputs.device(),
-        );
+        let mask = create_sequence_mask(&item.input_lengths, max_len, &item.inputs.device());
+
+        // create target mask
+        let target_mask =
+            create_sequence_mask(&item.target_lengths, max_len, &item.targets.device());
 
         // Apply mask to both output and targets
         let masked_output = output.clone() * mask.clone();
-        let masked_targets = item.targets.clone() * mask;
+        // let masked_targets = item.targets.clone() * mask;
+        let masked_targets = item.targets.clone() * target_mask;
 
         // Compute loss only on valid (unmasked) elements
         let loss = MseLoss::new()
@@ -131,9 +134,9 @@ fn create_sequence_mask<B: Backend>(
     let batch_size = lengths.dims()[0];
 
     // Create mask of shape [batch_size, max_len, 1]
-    let mut mask_data = vec![0.0; batch_size * max_len];
+    let mut mask_data = vec![0.0; batch_size * max_len * NUM_FEATURES];
 
-    let lengths: Vec<i32> = lengths
+    let lengths: Vec<f32> = lengths
         .to_data()
         .to_vec()
         .expect("Failed to convert lengths to Vec");
@@ -147,9 +150,10 @@ fn create_sequence_mask<B: Backend>(
     }
 
     // Create and reshape mask tensor
-    Tensor::<B, 3>::from_floats(mask_data.as_slice(), device)
+    // fix like dataset pad_sequence?
+    Tensor::<B, 1>::from_floats(mask_data.as_slice(), device)
         // .reshape([batch_size, max_len, 1])
-        // .broadcast_like([batch_size, max_len, NUM_FEATURES])
+        // .broadcast_like([batch_size, max_len, NUM_FEATURES]) // doesnt exist
         // why not this
         .reshape([batch_size, max_len, NUM_FEATURES])
 }

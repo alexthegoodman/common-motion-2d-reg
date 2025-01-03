@@ -22,7 +22,8 @@ pub struct ExpConfig {
 
     pub optimizer: AdamConfig,
 
-    #[config(default = 256)]
+    // #[config(default = 256)]
+    #[config(default = 64)]
     pub batch_size: usize,
 }
 
@@ -75,6 +76,8 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
         .build(model, config.optimizer.init(), 1e-3);
 
     let model_trained = learner.fit(dataloader_train, dataloader_test);
+
+    println!("Saving model and config to {}", artifact_dir);
 
     config
         .save(format!("{artifact_dir}/config.json").as_str())

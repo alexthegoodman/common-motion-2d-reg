@@ -96,6 +96,7 @@ impl<B: Backend> KeyframeBatcher<B> {
         Self { device }
     }
 
+    /// pads only a single sequence
     fn pad_sequence(
         &self,
         items: &[Vec<KeyframeItem>],
@@ -103,25 +104,42 @@ impl<B: Backend> KeyframeBatcher<B> {
     ) -> (Tensor<B, 3>, Tensor<B, 1>) {
         let batch_size = items.len();
 
-        // Create padded tensor
+        // Calculate the actual number of elements needed
+        // let total_elements = items.iter().map(|seq| seq.len() * NUM_FEATURES).sum();
+
+        // Create padded tensor with the correct size
+        // let mut data = vec![0.0; total_elements];
         let mut data = vec![0.0; batch_size * max_len * NUM_FEATURES];
         let mut lengths = vec![0; batch_size];
 
+        let mut data_idx = 0;
         for (batch_idx, sequence) in items.iter().enumerate() {
-            lengths[batch_idx] = sequence.len();
+            if data_idx + NUM_FEATURES + 1 < data.len() {
+                lengths[batch_idx] = sequence.len();
 
-            for (seq_idx, item) in sequence.iter().enumerate() {
-                let base_idx = (batch_idx * max_len + seq_idx) * NUM_FEATURES;
-                data[base_idx] = item.polygon_index;
-                data[base_idx + 1] = item.time;
-                data[base_idx + 2] = item.width;
-                data[base_idx + 3] = item.height;
-                data[base_idx + 4] = item.x;
-                data[base_idx + 5] = item.y;
+                for item in sequence {
+                    data[data_idx] = item.polygon_index;
+                    data[data_idx + 1] = item.time;
+                    data[data_idx + 2] = item.width;
+                    data[data_idx + 3] = item.height;
+                    data[data_idx + 4] = item.x;
+                    data[data_idx + 5] = item.y;
+                    data_idx += NUM_FEATURES;
+                }
+            }
+            // Pad with zeros for sequences shorter than max_len
+            for _ in 0..(max_len - sequence.len()) {
+                for _ in 0..NUM_FEATURES {
+                    // check has data_idx first
+
+                    data[data_idx] = 0.0;
+
+                    data_idx += 1;
+                }
             }
         }
 
-        let tensor = Tensor::<B, 3>::from_floats(data.as_slice(), &self.device).reshape([
+        let tensor = Tensor::<B, 1>::from_floats(data.as_slice(), &self.device).reshape([
             batch_size,
             max_len,
             NUM_FEATURES,
@@ -150,8 +168,10 @@ impl<B: Backend> Batcher<(Vec<KeyframeItem>, Vec<KeyframeItem>), KeyframeBatch<B
             .max()
             .unwrap_or(0);
 
-        let (inputs, input_lengths) = self.pad_sequence(&input_sequences, max_input_len);
-        let (targets, target_lengths) = self.pad_sequence(&target_sequences, max_target_len);
+        let max_len = std::cmp::max(max_input_len, max_target_len);
+
+        let (inputs, input_lengths) = self.pad_sequence(&input_sequences, max_len);
+        let (targets, target_lengths) = self.pad_sequence(&target_sequences, max_len);
 
         KeyframeBatch {
             inputs,
