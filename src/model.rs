@@ -22,7 +22,8 @@ pub struct RegressionModel<B: Backend> {
 
 #[derive(Config)]
 pub struct RegressionModelConfig {
-    #[config(default = 64)]
+    // #[config(default = 64)]
+    #[config(default = 768)]
     pub hidden_size: usize,
 }
 

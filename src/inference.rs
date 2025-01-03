@@ -116,7 +116,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
     let targets = batch.targets;
 
     // Display the predicted vs expected values
-    let predicted = predicted.squeeze::<1>(1).into_data();
+    let predicted = predicted.squeeze::<1>(0).into_data();
     let expected = targets.into_data();
 
     let points = predicted
@@ -124,7 +124,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
         .zip(expected.iter::<f32>())
         .collect::<Vec<_>>();
 
-    println!("Predicted vs. Expected Median House Value (in 100,000$)");
+    println!("Predicted Motion Paths:");
     // Chart::new_with_y_range(120, 60, 0., 5., 0., 5.)
     //     .linecolorplot(
     //         &Shape::Points(&points),

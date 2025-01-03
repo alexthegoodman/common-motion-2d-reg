@@ -1,6 +1,7 @@
 use crate::dataset::{KeyframeBatcher, MotionDataset};
 use crate::model::RegressionModelConfig;
 use burn::optim::AdamConfig;
+use burn::train::metric::CudaMetric;
 use burn::{
     data::{dataloader::DataLoaderBuilder, dataset::Dataset},
     prelude::*,
@@ -23,7 +24,8 @@ pub struct ExpConfig {
     pub optimizer: AdamConfig,
 
     // #[config(default = 256)]
-    #[config(default = 64)]
+    // #[config(default = 64)]
+    #[config(default = 16)]
     pub batch_size: usize,
 }
 
@@ -67,6 +69,8 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // Model
     let learner = LearnerBuilder::new(artifact_dir)
+        .metric_train(CudaMetric::new())
+        .metric_valid(CudaMetric::new())
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
         .with_file_checkpointer(CompactRecorder::new())
