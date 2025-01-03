@@ -1,5 +1,5 @@
 use crate::dataset::{KeyframeBatcher, MotionDataset};
-use crate::model::RegressionModelConfig;
+use crate::model::RnnModelConfig;
 use burn::optim::AdamConfig;
 use burn::train::metric::CudaMetric;
 use burn::{
@@ -25,7 +25,7 @@ pub struct ExpConfig {
 
     // #[config(default = 256)]
     // #[config(default = 64)]
-    #[config(default = 16)]
+    #[config(default = 4)]
     pub batch_size: usize,
 }
 
@@ -41,7 +41,7 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     // Config
     let optimizer = AdamConfig::new();
     let config = ExpConfig::new(optimizer);
-    let model = RegressionModelConfig::new().init(&device);
+    let model = RnnModelConfig::new().init(&device);
     B::seed(config.seed);
 
     // Define train/valid datasets and dataloaders
@@ -77,7 +77,7 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
         .devices(vec![device.clone()])
         .num_epochs(config.num_epochs)
         .summary()
-        .build(model, config.optimizer.init(), 1e-3);
+        .build(model, config.optimizer.init(), 1e-5);
 
     let model_trained = learner.fit(dataloader_train, dataloader_test);
 

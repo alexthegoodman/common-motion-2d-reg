@@ -9,17 +9,15 @@ use burn::{
 
 use crate::{
     dataset::{KeyframeBatcher, KeyframeItem, MotionDataset},
-    model::{RegressionModelConfig, RegressionModelRecord},
+    model::{RnnModelConfig, RnnModelRecord},
 };
 
 pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
-    let record: RegressionModelRecord<B> = NoStdTrainingRecorder::new()
+    let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
         .load(format!("{artifact_dir}/model").into(), &device)
         .expect("Trained model should exist; run train first");
 
-    let model = RegressionModelConfig::new()
-        .init(&device)
-        .load_record(record);
+    let model = RnnModelConfig::new().init(&device).load_record(record);
 
     // Use a sample of 1000 items from the test split
     // let dataset = MotionDataset::test();
@@ -116,7 +114,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
     let targets = batch.targets;
 
     // Display the predicted vs expected values
-    let predicted = predicted.squeeze::<1>(0).into_data();
+    let predicted = predicted.into_data();
     let expected = targets.into_data();
 
     let points = predicted

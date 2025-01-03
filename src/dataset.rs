@@ -181,3 +181,54 @@ impl<B: Backend> Batcher<(Vec<KeyframeItem>, Vec<KeyframeItem>), KeyframeBatch<B
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct Normalizer<B: Backend> {
+    pub means: Tensor<B, 1>,
+    pub stds: Tensor<B, 1>,
+}
+
+impl<B: Backend> Normalizer<B> {
+    pub fn new(device: &B::Device) -> Self {
+        // Based on your data format: [polygon_index, time, width, height, x, y]
+        let means = Tensor::from_floats([0.5, 10.0, 150.0, 150.0, 200.0, 200.0], device);
+        let stds = Tensor::from_floats([0.5, 7.5, 50.0, 50.0, 200.0, 200.0], device);
+
+        Self { means, stds }
+    }
+
+    pub fn normalize(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+        let [batch_size, seq_len, _] = input.dims();
+
+        // Reshape and repeat means and stds to match input dimensions
+        let means = self
+            .means
+            .clone()
+            .reshape([1, 1, NUM_FEATURES])
+            .repeat(&[batch_size, seq_len, 1]);
+        let stds = self
+            .stds
+            .clone()
+            .reshape([1, 1, NUM_FEATURES])
+            .repeat(&[batch_size, seq_len, 1]);
+
+        (input - means) / stds
+    }
+
+    pub fn denormalize(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
+        let [batch_size, seq_len, _] = input.dims();
+
+        let means = self
+            .means
+            .clone()
+            .reshape([1, 1, NUM_FEATURES])
+            .repeat(&[batch_size, seq_len, 1]);
+        let stds = self
+            .stds
+            .clone()
+            .reshape([1, 1, NUM_FEATURES])
+            .repeat(&[batch_size, seq_len, 1]);
+
+        (input * stds) + means
+    }
+}
