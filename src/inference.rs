@@ -8,7 +8,7 @@ use burn::{
 // use textplots::{Chart, ColorPlot, Shape};
 
 use crate::{
-    dataset::{KeyframeBatcher, KeyframeItem, MotionDataset},
+    dataset::{KeyframeBatcher, KeyframeItem, MotionDataset, Normalizer},
     model::{RnnModelConfig, RnnModelRecord},
 };
 
@@ -55,6 +55,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
     }
 
     // prepare as Vec<(Vec<KeyframeItem>, Vec<KeyframeItem>)> for batcher?
+    // targets only included here to compare predictions, not used in inference
     let mut targets = Vec::new();
     targets.push(
         "0, 0, 361, 161, 330, -13
@@ -110,35 +111,42 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
 
     let batcher = KeyframeBatcher::new(device);
     let batch = batcher.batch(combined_for_batcher.clone());
-    let predicted = model.forward(batch.inputs);
+    // let predicted = model.forward(batch.inputs);
+    let predicted = model.forward_step(batch.clone()).output;
     let targets = batch.targets;
 
     // Display the predicted vs expected values
-    let predicted = predicted.into_data();
-    let expected = targets.into_data();
+    let predicted_data = predicted.clone().into_data();
+    let expected_data = targets.clone().into_data();
 
-    let points = predicted
+    let normalizer = Normalizer::new(&targets.device());
+    // normalize values to see differential in numbers
+    let normalized_predicted = normalizer.normalize(predicted);
+    let normalized_expected = normalizer.normalize(targets);
+    let normalized_predicted_data = normalized_predicted.into_data();
+    let normalized_expected_data = normalized_expected.into_data();
+
+    let points = predicted_data
         .iter::<f32>()
-        .zip(expected.iter::<f32>())
+        .zip(expected_data.iter::<f32>())
+        .collect::<Vec<_>>();
+
+    let normalized_points = normalized_predicted_data
+        .iter::<f32>()
+        .zip(normalized_expected_data.iter::<f32>())
         .collect::<Vec<_>>();
 
     println!("Predicted Motion Paths:");
-    // Chart::new_with_y_range(120, 60, 0., 5., 0., 5.)
-    //     .linecolorplot(
-    //         &Shape::Points(&points),
-    //         RGB8 {
-    //             r: 255,
-    //             g: 85,
-    //             b: 85,
-    //         },
-    //     )
-    //     .display();
 
-    // Print a single numeric value as an example
-    // println!("Predicted {} Expected {}", points[0].0, points[0].1);
-
+    println!("Denormalized...");
     // Print all values
     for (predicted, expected) in points {
+        println!("Predicted {} Expected {}", predicted, expected);
+    }
+
+    println!("Normalized...");
+    // Print all values
+    for (predicted, expected) in normalized_points {
         println!("Predicted {} Expected {}", predicted, expected);
     }
 }
