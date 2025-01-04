@@ -25,10 +25,14 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
 
     // inputs / prompts
     let mut prompts = Vec::new();
-    prompts.push(
-        "0, 5, 361, 161, 305, 217, \n1, 5, 232, 332, 50, 70, \n2, 5, 149, 149, 304, 116, "
-            .to_string(),
-    );
+    // prompts.push(
+    //     "0, 5, 361, 161, 305, 217, \n1, 5, 232, 332, 50, 70, \n2, 5, 149, 149, 304, 116, "
+    //         .to_string(),
+    // );
+    prompts.push("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
+    // prompts.push(
+    //     "0, 5, 161, 161, 210, 168, \n1, 5, 165, 265, 189, 262, \n2, 5, 112, 212, 439, 266, \n3, 5, 152, 152, 462, 163, ".to_string()
+    // );
 
     let mut items: Vec<Vec<KeyframeItem>> = Vec::new();
 
@@ -57,25 +61,42 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
     // prepare as Vec<(Vec<KeyframeItem>, Vec<KeyframeItem>)> for batcher?
     // targets only included here to compare predictions, not used in inference
     let mut targets = Vec::new();
+    //     targets.push(
+    //         "0, 0, 361, 161, 330, -13
+    // 0, 2.5, 361, 161, 309, 90
+    // 0, 5, 361, 161, 305, 217
+    // 0, 15, 361, 161, 305, 217
+    // 0, 17.5, 361, 161, 312, 83
+    // 0, 20, 361, 161, 298, -22
+    // 1, 0, 232, 332, -17, 101
+    // 1, 2.5, 232, 332, 37, 86
+    // 1, 5, 232, 332, 50, 70
+    // 1, 15, 232, 332, 50, 70
+    // 1, 17.5, 232, 332, -5, 69
+    // 1, 20, 232, 332, -28, 106
+    // 2, 0, 149, 149, 305, -6
+    // 2, 2.5, 149, 149, 304, 57
+    // 2, 5, 149, 149, 304, 116
+    // 2, 15, 149, 149, 304, 116
+    // 2, 17.5, 149, 149, 306, 77
+    // 2, 20, 149, 149, 303, -11"
+    //             .to_string(),
+    //     );
+
+    // file zeros for shape expected for prediction
     targets.push(
-        "0, 0, 361, 161, 330, -13
-0, 2.5, 361, 161, 309, 90
-0, 5, 361, 161, 305, 217
-0, 15, 361, 161, 305, 217
-0, 17.5, 361, 161, 312, 83
-0, 20, 361, 161, 298, -22
-1, 0, 232, 332, -17, 101
-1, 2.5, 232, 332, 37, 86
-1, 5, 232, 332, 50, 70
-1, 15, 232, 332, 50, 70
-1, 17.5, 232, 332, -5, 69
-1, 20, 232, 332, -28, 106
-2, 0, 149, 149, 305, -6
-2, 2.5, 149, 149, 304, 57
-2, 5, 149, 149, 304, 116
-2, 15, 149, 149, 304, 116
-2, 17.5, 149, 149, 306, 77
-2, 20, 149, 149, 303, -11"
+        "0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0
+0, 0, 0, 0, 0, 0"
             .to_string(),
     );
 
@@ -144,10 +165,18 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
 
     println!("Predicted Motion Paths:");
 
-    println!("Denormalized...");
-    // Print all values
-    for (predicted, expected) in points {
-        println!("Predicted {} Expected {}", predicted, expected);
+    // println!("Denormalized...");
+    // // Print all values
+    // for (predicted, expected) in points {
+    //     println!("Predicted {} Expected {}", predicted, expected);
+    // }
+
+    // print predicted values in lines of 6 columns
+    for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
+        if i % 6 == 0 {
+            println!();
+        }
+        print!("{}, ", predicted);
     }
 
     // println!("Normalized...");
