@@ -28,12 +28,14 @@ pub struct ExpConfig {
 
     pub optimizer: AdamWConfig,
 
-    #[config(default = 16)]
-    // #[config(default = 256)]
+    // #[config(default = 16)]
+    #[config(default = 256)]
     // #[config(default = 128)]
     // #[config(default = 64)]
     // #[config(default = 2)]
     // #[config(default = 4)]
+    // #[config(default = 4)]
+    // targets large so batch size 1? possible vanishing gradients in lstm with larger batch size?
     pub batch_size: usize,
 }
 
@@ -64,6 +66,21 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     let batcher_test = KeyframeBatcher::<B::InnerBackend>::new(device.clone());
 
+    // print 5 sequences from train
+    // for i in 0..5 {
+    //     let (inputs, targets) = train_dataset.get(i).unwrap();
+    //     println!("Train Sequence inputs {}: {:?}", i, inputs.len());
+    //     // print input data
+    //     for input in inputs.iter() {
+    //         println!("{:?}", input);
+    //     }
+    //     println!("Train Sequence targets {}: {:?}", i, targets.len());
+    //     // print input data
+    //     for target in targets.iter() {
+    //         println!("{:?}", target);
+    //     }
+    // }
+
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
@@ -83,7 +100,7 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // let lr_scheduler = LinearLrSchedulerConfig::new(1e-4, 1e-6, 100).init();
 
-    let lr_scheduler = ConstantLr::new(1e-5);
+    let lr_scheduler = ConstantLr::new(1e-2);
 
     // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();
 

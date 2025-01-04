@@ -12,7 +12,7 @@ pub fn run_wgpu() {
 
 /// Train a regression model and predict results on a number of samples.
 pub fn run<B: Backend>(device: B::Device) {
-    training::run::<Autodiff<B>>(ARTIFACT_DIR, device.clone());
+    // training::run::<Autodiff<B>>(ARTIFACT_DIR, device.clone());
     inference::infer::<B>(ARTIFACT_DIR, device)
 }
 

@@ -112,14 +112,20 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
     let batcher = KeyframeBatcher::new(device);
     let batch = batcher.batch(combined_for_batcher.clone());
     // let predicted = model.forward(batch.inputs);
-    let predicted = model.forward_step(batch.clone()).output;
+    // let predicted = model.forward_step(batch.clone()).output;
+
     let targets = batch.targets;
+
+    let normalizer = Normalizer::new(&targets.device());
+
+    let normalized_inputs = normalizer.normalize(batch.inputs.clone());
+    let predicted = model.forward(normalized_inputs);
+    let predicted = normalizer.denormalize(predicted);
 
     // Display the predicted vs expected values
     let predicted_data = predicted.clone().into_data();
     let expected_data = targets.clone().into_data();
 
-    let normalizer = Normalizer::new(&targets.device());
     // normalize values to see differential in numbers
     let normalized_predicted = normalizer.normalize(predicted);
     let normalized_expected = normalizer.normalize(targets);
@@ -144,9 +150,9 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
         println!("Predicted {} Expected {}", predicted, expected);
     }
 
-    println!("Normalized...");
-    // Print all values
-    for (predicted, expected) in normalized_points {
-        println!("Predicted {} Expected {}", predicted, expected);
-    }
+    // println!("Normalized...");
+    // // Print all values
+    // for (predicted, expected) in normalized_points {
+    //     println!("Predicted {} Expected {}", predicted, expected);
+    // }
 }

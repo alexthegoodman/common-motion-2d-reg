@@ -74,6 +74,15 @@ impl MotionDataset {
             }
         }
 
+        // print 5 sequences
+        // for i in 0..5 {
+        //     println!("Sequence {}", i);
+        //     let (inputs, targets) = &sequences[i];
+        //     for (input, target) in inputs.iter().zip(targets.iter()) {
+        //         println!("{:?} -> {:?}", input, target);
+        //     }
+        // }
+
         Self { sequences }
     }
 }
@@ -96,7 +105,7 @@ impl<B: Backend> KeyframeBatcher<B> {
         Self { device }
     }
 
-    /// pads only a single sequence
+    /// actually pads multiple sequences
     fn pad_sequence(
         &self,
         items: &[Vec<KeyframeItem>],
@@ -154,6 +163,7 @@ impl<B: Backend> Batcher<(Vec<KeyframeItem>, Vec<KeyframeItem>), KeyframeBatch<B
     for KeyframeBatcher<B>
 {
     fn batch(&self, items: Vec<(Vec<KeyframeItem>, Vec<KeyframeItem>)>) -> KeyframeBatch<B> {
+        // Unzip the inputs and targets for the entire batch
         let (input_sequences, target_sequences): (Vec<_>, Vec<_>) = items.into_iter().unzip();
 
         let max_input_len = input_sequences
