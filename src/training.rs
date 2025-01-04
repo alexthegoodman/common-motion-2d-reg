@@ -1,7 +1,12 @@
 use crate::dataset::{KeyframeBatcher, MotionDataset};
 use crate::model::RnnModelConfig;
-use burn::optim::AdamConfig;
-use burn::train::metric::CudaMetric;
+use burn::lr_scheduler;
+use burn::lr_scheduler::constant::ConstantLr;
+use burn::lr_scheduler::cosine::CosineAnnealingLrSchedulerConfig;
+use burn::lr_scheduler::linear::{LinearLrScheduler, LinearLrSchedulerConfig};
+use burn::lr_scheduler::noam::NoamLrSchedulerConfig;
+use burn::optim::{AdamConfig, AdamWConfig};
+use burn::train::metric::{AccuracyMetric, CudaMetric, LearningRateMetric};
 use burn::{
     data::{dataloader::DataLoaderBuilder, dataset::Dataset},
     prelude::*,
@@ -12,20 +17,23 @@ use burn::{
 
 #[derive(Config)]
 pub struct ExpConfig {
-    #[config(default = 100)]
+    #[config(default = 500)]
     pub num_epochs: usize,
 
-    #[config(default = 2)]
+    #[config(default = 4)]
     pub num_workers: usize,
 
     #[config(default = 1337)]
     pub seed: u64,
 
-    pub optimizer: AdamConfig,
+    pub optimizer: AdamWConfig,
 
+    #[config(default = 16)]
     // #[config(default = 256)]
+    // #[config(default = 128)]
     // #[config(default = 64)]
-    #[config(default = 4)]
+    // #[config(default = 2)]
+    // #[config(default = 4)]
     pub batch_size: usize,
 }
 
@@ -39,7 +47,8 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     create_artifact_dir(artifact_dir);
 
     // Config
-    let optimizer = AdamConfig::new();
+    // let optimizer = AdamConfig::new();
+    let optimizer = AdamWConfig::new().with_weight_decay(1.0e-8);
     let config = ExpConfig::new(optimizer);
     let model = RnnModelConfig::new().init(&device);
     B::seed(config.seed);
@@ -67,17 +76,31 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
         .num_workers(config.num_workers)
         .build(valid_dataset);
 
+    // let lr_scheduler = NoamLrSchedulerConfig::new(1e-1 as f64)
+    //     .with_warmup_steps(2000)
+    //     // .with_model_size(config.transformer.d_model)
+    //     .init();
+
+    // let lr_scheduler = LinearLrSchedulerConfig::new(1e-4, 1e-6, 100).init();
+
+    let lr_scheduler = ConstantLr::new(1e-5);
+
+    // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();
+
     // Model
     let learner = LearnerBuilder::new(artifact_dir)
         .metric_train(CudaMetric::new())
         .metric_valid(CudaMetric::new())
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
+        // .metric_train_numeric(AccuracyMetric::new())
+        // .metric_valid_numeric(AccuracyMetric::new())
+        .metric_train_numeric(LearningRateMetric::new())
         .with_file_checkpointer(CompactRecorder::new())
         .devices(vec![device.clone()])
         .num_epochs(config.num_epochs)
         .summary()
-        .build(model, config.optimizer.init(), 1e-5);
+        .build(model, config.optimizer.init(), lr_scheduler);
 
     let model_trained = learner.fit(dataloader_train, dataloader_test);
 
