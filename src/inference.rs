@@ -1,7 +1,7 @@
 use burn::{
     data::{dataloader::batcher::Batcher, dataset::Dataset},
     module::Module,
-    record::{NoStdTrainingRecorder, Recorder},
+    record::{BinBytesRecorder, FullPrecisionSettings, NoStdTrainingRecorder, Recorder},
     tensor::backend::Backend,
 };
 // use rgb::RGB8;
@@ -13,8 +13,15 @@ use crate::{
 };
 
 pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
-    let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
-        .load(format!("{artifact_dir}/model").into(), &device)
+    // Embed the model file directly in the binary
+    const MODEL_BYTES: &[u8] = include_bytes!("D:/tmp/common-motion-2d-reg/model.bin");
+
+    // let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
+    //     .load(format!("{artifact_dir}/model").into(), &device)
+    //     .expect("Trained model should exist; run train first");
+    let record: RnnModelRecord<B> = BinBytesRecorder::<FullPrecisionSettings>::default()
+        .load(MODEL_BYTES.to_vec(), &device)
+        // .load(format!("{artifact_dir}/model").into(), &device)
         .expect("Trained model should exist; run train first");
 
     let model = RnnModelConfig::new().init(&device).load_record(record);
