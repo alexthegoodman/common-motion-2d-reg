@@ -1,5 +1,9 @@
 use burn::{backend::Autodiff, tensor::backend::Backend};
-use common_motion_2d_reg::{inference, training};
+use common_motion_2d_reg::{
+    inference::{self, CommonMotionInference},
+    interface::load_common_motion_2d,
+    training,
+};
 
 static ARTIFACT_DIR: &str = "/tmp/common-motion-2d-reg";
 
@@ -13,9 +17,15 @@ pub fn run_wgpu() {
 /// Train a regression model and predict results on a number of samples.
 pub fn run<B: Backend>(device: B::Device) {
     // training::run::<Autodiff<B>>(ARTIFACT_DIR, device.clone());
-    inference::infer::<B>(ARTIFACT_DIR, device)
+    println!("Loading model...");
+    let inference: CommonMotionInference<B> = CommonMotionInference::new(device);
+    println!("Running inference...");
+    inference.infer();
 }
 
 fn main() {
-    run_wgpu();
+    // run_wgpu();
+    let inference = load_common_motion_2d();
+    println!("Running inference...");
+    inference.infer();
 }
