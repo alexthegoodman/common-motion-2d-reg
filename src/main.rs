@@ -20,12 +20,12 @@ pub fn run<B: Backend>(device: B::Device) {
     println!("Loading model...");
     let inference: CommonMotionInference<B> = CommonMotionInference::new(device);
     println!("Running inference...");
-    inference.infer();
+    inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
 }
 
 fn main() {
     // run_wgpu();
     let inference = load_common_motion_2d();
     println!("Running inference...");
-    inference.infer();
+    inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
 }

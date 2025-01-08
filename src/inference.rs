@@ -37,7 +37,7 @@ impl<B: Backend> CommonMotionInference<B> {
         Self { model, batcher }
     }
 
-    pub fn infer(&self) {
+    pub fn infer(&self, user_prompt: String) {
         // Use a sample of 1000 items from the test split
         // let dataset = MotionDataset::test();
         // let items: Vec<KeyframeItem> = dataset.iter().take(1000).collect();
@@ -49,9 +49,10 @@ impl<B: Backend> CommonMotionInference<B> {
         //         .to_string(),
         // );
         // prompts.push("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
-        prompts.push(
-            "0, 5, 161, 161, 210, 168, \n1, 5, 165, 265, 189, 262, \n2, 5, 112, 212, 439, 266, \n3, 5, 152, 152, 462, 163, ".to_string()
-        );
+        // prompts.push(
+        //     "0, 5, 161, 161, 210, 168, \n1, 5, 165, 265, 189, 262, \n2, 5, 112, 212, 439, 266, \n3, 5, 152, 152, 462, 163, ".to_string()
+        // );
+        prompts.push(user_prompt);
 
         let mut items: Vec<Vec<KeyframeItem>> = Vec::new();
 
