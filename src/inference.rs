@@ -37,7 +37,7 @@ impl<B: Backend> CommonMotionInference<B> {
         Self { model, batcher }
     }
 
-    pub fn infer(&self, user_prompt: String) {
+    pub fn infer(&self, user_prompt: String) -> Vec<f32> {
         // Use a sample of 1000 items from the test split
         // let dataset = MotionDataset::test();
         // let items: Vec<KeyframeItem> = dataset.iter().take(1000).collect();
@@ -143,18 +143,22 @@ impl<B: Backend> CommonMotionInference<B> {
         //     println!("Predicted {} Expected {}", predicted, expected);
         // }
 
+        let predicted_output: Vec<f32> = predicted_data.iter::<f32>().collect();
+
         // print predicted values in lines of 6 columns
-        for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
-            if i % 6 == 0 {
-                println!();
-            }
-            print!("{}, ", predicted);
-        }
+        // for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
+        //     if i % 6 == 0 {
+        //         println!();
+        //     }
+        //     print!("{}, ", predicted);
+        // }
 
         // println!("Normalized...");
         // // Print all values
         // for (predicted, expected) in normalized_points {
         //     println!("Predicted {} Expected {}", predicted, expected);
         // }
+
+        predicted_output
     }
 }
