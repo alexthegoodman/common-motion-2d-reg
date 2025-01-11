@@ -12,3 +12,7 @@ derive-new = "0.7.0"
 csv = "1.3.1"
 rand = "0.8.5"
 itertools = "0.14.0"
+
+[lib]
+name = "common_motion_2d_reg"
+path = "src/lib.rs"
