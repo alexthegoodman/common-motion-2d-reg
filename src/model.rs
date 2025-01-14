@@ -208,7 +208,7 @@ impl<B: Backend> Adaptor<LossInput<B>> for RnnOutput<B> {
 // }
 
 const NUM_HIDDEN_LAYERS: usize = 1;
-const NUM_LSTM_LAYERS: usize = 1;
+const NUM_LSTM_LAYERS: usize = 2;
 const LEAKY_RELU_SLOPE: f64 = 0.1;
 const DROPOUT_RATE: f64 = 0.2;
 

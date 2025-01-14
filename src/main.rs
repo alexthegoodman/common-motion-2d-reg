@@ -16,16 +16,16 @@ pub fn run_wgpu() {
 
 /// Train a regression model and predict results on a number of samples.
 pub fn run<B: Backend>(device: B::Device) {
-    // training::run::<Autodiff<B>>(ARTIFACT_DIR, device.clone());
-    println!("Loading model...");
-    let inference: CommonMotionInference<B> = CommonMotionInference::new(device);
-    println!("Running inference...");
-    inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
+    training::run::<Autodiff<B>>(ARTIFACT_DIR, device.clone());
+    // println!("Loading model...");
+    // let inference: CommonMotionInference<B> = CommonMotionInference::new(device);
+    // println!("Running inference...");
+    // inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
 }
 
 fn main() {
-    // run_wgpu();
-    let inference = load_common_motion_2d();
-    println!("Running inference...");
-    inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
+    run_wgpu();
+    // let inference = load_common_motion_2d();
+    // println!("Running inference...");
+    // inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
 }
