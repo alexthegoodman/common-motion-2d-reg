@@ -100,7 +100,8 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // let lr_scheduler = LinearLrSchedulerConfig::new(1e-4, 1e-6, 100).init();
 
-    let lr_scheduler = ConstantLr::new(1e-2);
+    let lr_scheduler = ConstantLr::new(2e-3);
+    // let lr_scheduler = ConstantLr::new(0.1);
 
     // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();
 

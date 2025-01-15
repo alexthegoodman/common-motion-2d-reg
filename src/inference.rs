@@ -20,8 +20,7 @@ pub struct CommonMotionInference<B: Backend> {
 impl<B: Backend> CommonMotionInference<B> {
     pub fn new(device: B::Device) -> CommonMotionInference<B> {
         // Embed the model file directly in the binary
-        const MODEL_BYTES: &[u8] =
-            include_bytes!("D:/tmp/common-motion-2d-reg-v1-2-lstm/model.bin");
+        const MODEL_BYTES: &[u8] = include_bytes!("D:/tmp/common-motion-2d-vae-e22/model.bin");
 
         // let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
         //     .load(format!("{artifact_dir}/model").into(), &device)
@@ -113,7 +112,7 @@ impl<B: Backend> CommonMotionInference<B> {
         let normalizer = Normalizer::new(&targets.device());
 
         let normalized_inputs = normalizer.normalize(batch.inputs.clone());
-        let predicted = self.model.forward(normalized_inputs);
+        let (predicted, kl_loss) = self.model.forward(normalized_inputs);
         let predicted = normalizer.denormalize(predicted);
 
         // Display the predicted vs expected values
@@ -147,12 +146,12 @@ impl<B: Backend> CommonMotionInference<B> {
         let predicted_output: Vec<f32> = predicted_data.iter::<f32>().collect();
 
         // print predicted values in lines of 6 columns
-        // for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
-        //     if i % 6 == 0 {
-        //         println!();
-        //     }
-        //     print!("{}, ", predicted);
-        // }
+        for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
+            if i % 6 == 0 {
+                println!();
+            }
+            print!("{}, ", predicted);
+        }
 
         // println!("Normalized...");
         // // Print all values
