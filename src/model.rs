@@ -6,251 +6,20 @@ use burn::{
     config::Config,
     module::Module,
     nn::{
-        loss::MseLoss, Dropout, DropoutConfig, Gelu, LayerNorm, LayerNormConfig, LeakyRelu,
-        LeakyReluConfig, Linear, LinearConfig, Lstm, LstmConfig, Relu,
+        attention::{MhaInput, MhaOutput, MultiHeadAttention, MultiHeadAttentionConfig},
+        loss::MseLoss,
+        Dropout, DropoutConfig, Gelu, LayerNorm, LayerNormConfig, LeakyRelu, LeakyReluConfig,
+        Linear, LinearConfig, Lstm, LstmConfig, Relu,
     },
     tensor::{
         backend::{AutodiffBackend, Backend},
-        Distribution, Tensor,
+        Distribution, Shape, Tensor, TensorData,
     },
     train::{
         metric::{AccuracyInput, Adaptor, LossInput},
         TrainOutput, TrainStep, ValidStep,
     },
 };
-
-// #[derive(Module, Debug)]
-// pub struct RnnModel<B: Backend> {
-//     lstm_layers: Vec<Lstm<B>>,
-//     layer_norms: Vec<LayerNorm<B>>,
-//     output_norm: LayerNorm<B>, // Add specific normalization for output
-//     dropout: Dropout,
-//     hidden_layers: Vec<Linear<B>>,
-//     output_layer: Linear<B>,
-//     // activation: LeakyRelu,
-//     activation: Gelu,
-//     hidden_norms: Vec<LayerNorm<B>>, // Add normalization for hidden layers
-// }
-
-// #[derive(Config)]
-// pub struct RnnModelConfig {
-//     // #[config(default = 768)]
-//     #[config(default = 64)]
-//     // #[config(default = 256)]
-//     pub hidden_size: usize,
-// }
-
-// #[derive(Debug)]
-// pub struct RnnOutput<B: Backend> {
-//     pub loss: Tensor<B, 1>,
-//     pub output: Tensor<B, 3>,
-//     pub targets: Tensor<B, 3>,
-// }
-
-// impl<B: Backend> Adaptor<LossInput<B>> for RnnOutput<B> {
-//     fn adapt(&self) -> LossInput<B> {
-//         LossInput::new(self.loss.clone())
-//     }
-// }
-
-// // setup accuracy
-// // impl<B: Backend> Adaptor<AccuracyInput<B>> for RnnOutput<B> {
-// //     fn adapt(&self) -> AccuracyInput<B> {
-// //         AccuracyInput::new(self.output.clone(), self.targets.clone())
-// //     }
-// // }
-
-// const NUM_HIDDEN_LAYERS: usize = 1;
-// const NUM_LSTM_LAYERS: usize = 1;
-// const LEAKY_RELU_SLOPE: f64 = 0.1;
-// const DROPOUT_RATE: f64 = 0.2;
-
-// impl RnnModelConfig {
-//     pub fn init<B: Backend>(&self, device: &B::Device) -> RnnModel<B> {
-//         let mut lstm_layers: Vec<Lstm<B>> = Vec::with_capacity(NUM_LSTM_LAYERS);
-//         let mut layer_norms: Vec<LayerNorm<B>> = Vec::with_capacity(NUM_LSTM_LAYERS);
-//         let mut hidden_norms: Vec<LayerNorm<B>> = Vec::with_capacity(3); // For hidden layers
-
-//         // Use scaled initialization to help with activation scaling
-//         let initializer = burn::nn::Initializer::KaimingNormal {
-//             fan_out_only: false,
-//             gain: (1.0 + LEAKY_RELU_SLOPE * LEAKY_RELU_SLOPE).sqrt(), // Adjust gain for LeakyReLU
-//         };
-
-//         // LSTM layers
-//         for i in 0..NUM_LSTM_LAYERS {
-//             let input_size = if i == 0 {
-//                 NUM_FEATURES
-//             } else {
-//                 self.hidden_size
-//             };
-
-//             lstm_layers.push(
-//                 LstmConfig::new(input_size, self.hidden_size, true)
-//                     .with_initializer(initializer.clone())
-//                     .init(device),
-//             );
-
-//             layer_norms.push(
-//                 LayerNormConfig::new(self.hidden_size)
-//                     .with_epsilon(1e-5)
-//                     .init(device),
-//             );
-//         }
-
-//         // Hidden layers with their own normalizations
-//         let hidden_layers: Vec<Linear<B>> = (0..3)
-//             .map(|_| {
-//                 hidden_norms.push(
-//                     LayerNormConfig::new(self.hidden_size)
-//                         .with_epsilon(1e-5)
-//                         .init(device),
-//                 );
-
-//                 LinearConfig::new(self.hidden_size, self.hidden_size)
-//                     .with_bias(true)
-//                     .with_initializer(initializer.clone())
-//                     .init(device)
-//             })
-//             .collect();
-
-//         // Output layer with larger initialization to help with range
-//         let output_layer = LinearConfig::new(self.hidden_size, NUM_FEATURES)
-//             .with_bias(true)
-//             .with_initializer(burn::nn::Initializer::KaimingNormal {
-//                 fan_out_only: false,
-//                 gain: 2.0, // Increased gain for output layer
-//             })
-//             .init(device);
-
-//         // Special normalization for output
-//         let output_norm = LayerNormConfig::new(NUM_FEATURES)
-//             .with_epsilon(1e-5)
-//             .init(device);
-
-//         RnnModel {
-//             lstm_layers,
-//             layer_norms,
-//             output_norm,
-//             dropout: DropoutConfig::new(DROPOUT_RATE).init(),
-//             hidden_layers,
-//             output_layer,
-//             // activation: LeakyReluConfig::new()
-//             //     .with_negative_slope(LEAKY_RELU_SLOPE)
-//             //     .init(),
-//             activation: Gelu::new(),
-//             hidden_norms,
-//         }
-//     }
-// }
-
-// impl<B: Backend> RnnModel<B> {
-//     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-//         let [batch_size, seq_len, _features] = input.dims();
-
-//         let mut lstm_out = input;
-//         let mut lstm_state = None;
-
-//         // LSTM layers with careful normalization
-//         for (i, ((lstm, layer_norm), prev_lstm)) in self
-//             .lstm_layers
-//             .iter()
-//             .zip(self.layer_norms.iter())
-//             .zip(std::iter::once(None).chain(self.lstm_layers.iter().map(Some)))
-//             .enumerate()
-//         {
-//             let (out, state) = lstm.forward(lstm_out.clone(), lstm_state);
-//             // NOTE: norms not needed as data is already normalized acceptably
-//             // let normalized = layer_norm.forward(out);
-
-//             // Residual connection if not first layer
-//             // if i > 0 {
-//             //     lstm_out = normalized + lstm_out;
-//             // } else {
-//             //     lstm_out = normalized;
-//             // }
-
-//             lstm_out = out;
-
-//             // lstm_out = self.dropout.forward(lstm_out);
-//             lstm_state = Some(state);
-//         }
-
-//         // Process through hidden layers
-//         let mut hidden = lstm_out.reshape([batch_size * seq_len, self.lstm_layers[0].d_hidden]);
-
-//         for (i, (hidden_layer, hidden_norm)) in self
-//             .hidden_layers
-//             .iter()
-//             .zip(self.hidden_norms.iter())
-//             .enumerate()
-//         {
-//             let layer_out = hidden_layer.forward(hidden.clone());
-//             let activated = self.activation.forward(layer_out);
-//             // NOTE: norms not needed as data is already normalized acceptably
-//             // let normalized = hidden_norm.forward(activated);
-
-//             // Residual connection
-//             // hidden = normalized + hidden;
-
-//             hidden = activated;
-
-//             // Only apply dropout between layers, not after final layer
-//             // if i < self.hidden_layers.len() - 1 {
-//             //     hidden = self.dropout.forward(hidden);
-//             // }
-//         }
-
-//         // Output layer with normalization to help with output range
-//         let output = self.output_layer.forward(hidden);
-//         // let normalized_output = self.output_norm.forward(output);
-
-//         output.reshape([batch_size, seq_len, NUM_FEATURES])
-//     }
-
-//     pub fn forward_step(&self, item: KeyframeBatch<B>) -> RnnOutput<B> {
-//         let normalizer = Normalizer::new(&item.inputs.device());
-
-//         // Normalize inputs and targets
-//         let normalized_inputs = normalizer.normalize(item.inputs.clone());
-//         let normalized_targets = normalizer.normalize(item.targets.clone());
-
-//         let output = self.forward(normalized_inputs);
-
-//         // NOTE: already masked in batcher
-
-//         let loss = MseLoss::new().forward(
-//             output.clone(),
-//             normalized_targets.clone(),
-//             burn::nn::loss::Reduction::Mean,
-//         );
-
-//         // Denormalize for the actual predictions
-//         let denormalized_output = normalizer.denormalize(output);
-
-//         RnnOutput {
-//             loss,
-//             output: denormalized_output,
-//             targets: item.targets,
-//         }
-//     }
-// }
-
-// impl<B: AutodiffBackend> TrainStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
-//     fn step(&self, item: KeyframeBatch<B>) -> TrainOutput<RnnOutput<B>> {
-//         let item = self.forward_step(item);
-//         TrainOutput::new(self, item.loss.backward(), item)
-//     }
-// }
-
-// impl<B: Backend> ValidStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
-//     fn step(&self, item: KeyframeBatch<B>) -> RnnOutput<B> {
-//         self.forward_step(item)
-//     }
-// }
-
-// use ndarray::{Array, Array1, Array2, ArrayView, ArrayView1, ArrayView2, Axis, StrideShape};
-// use ndarray_stats::EntropyExt;
 
 // modfiied model approach:
 #[derive(Module, Debug)]
@@ -269,6 +38,12 @@ pub struct RnnModel<B: Backend> {
     mean_layer: Linear<B>,
     logvar_layer: Linear<B>,
 
+    // MultiHeadAttention
+    encoder_attention: MultiHeadAttention<B>,
+    query_proj: Linear<B>,
+    key_proj: Linear<B>,
+    value_proj: Linear<B>,
+
     // for convenience
     pub hidden_size: usize,
     pub latent_dim: usize,
@@ -276,12 +51,18 @@ pub struct RnnModel<B: Backend> {
 
 #[derive(Config)]
 pub struct RnnModelConfig {
+    // #[config(default = 1024)]
+    // #[config(default = 512)]
     #[config(default = 256)]
     // #[config(default = 64)]
     pub hidden_size: usize,
-    #[config(default = 128)]
-    // #[config(default = 32)] // Latent space dimension
+    // #[config(default = 512)]
+    // #[config(default = 256)]
+    // #[config(default = 128)]
+    #[config(default = 32)] // Latent space dimension
     pub latent_dim: usize,
+    #[config(default = 8)]
+    pub n_heads: usize,
 }
 
 #[derive(Debug)]
@@ -380,18 +161,44 @@ impl RnnModelConfig {
             .with_initializer(initializer.clone())
             .init(device);
 
+        let encoder_attention =
+            MultiHeadAttentionConfig::new(self.hidden_size, self.n_heads).init(device);
+
+        // Add projection layers for Q, K, V
+        let query_proj = LinearConfig::new(self.hidden_size, self.hidden_size)
+            .with_bias(true)
+            .with_initializer(initializer.clone())
+            .init(device);
+
+        let key_proj = LinearConfig::new(self.hidden_size, self.hidden_size)
+            .with_bias(true)
+            .with_initializer(initializer.clone())
+            .init(device);
+
+        let value_proj = LinearConfig::new(self.hidden_size, self.hidden_size)
+            .with_bias(true)
+            .with_initializer(initializer.clone())
+            .init(device);
+
         RnnModel {
+            // lstm
             lstm_layers,
             lstm_decoder,
-            // layer_norms,
+            // staandard
             output_norm,
             dropout: DropoutConfig::new(DROPOUT_RATE).init(),
             hidden_layers,
             output_layer,
             activation: Gelu::new(),
-            // hidden_norms,
+            // vae
             mean_layer,
             logvar_layer,
+            // attn
+            encoder_attention,
+            query_proj,
+            key_proj,
+            value_proj,
+            // config
             hidden_size: self.hidden_size,
             latent_dim: self.latent_dim,
         }
@@ -404,20 +211,7 @@ impl<B: Backend> RnnModel<B> {
         mean.add(eps) * (logvar.mul_scalar(0.5)).exp()
     }
 
-    // fn kl_divergence(&self, mean: Tensor<B, 2>, logvar: Tensor<B, 2>) -> Tensor<B, 1> {
-    //     // Calculate KL divergence between the learned distribution and a standard Gaussian
-    //     (mean.powf_scalar(2.0) + (logvar.clone().neg()).exp() - logvar - 1.0)
-    //         .sum_dim(1)
-    //         .mean() // TODO: very suspicious, not so sure
-    //         .mul_scalar(0.5)
-    // }
-
     fn kl_divergence(&self, mean: Tensor<B, 2>, logvar: Tensor<B, 2>) -> Tensor<B, 1> {
-        // Ensure the tensors have the same shape
-        // if mean.shape() != logvar.shape() {
-        //     panic!("Shape mismatch: mean and logvar tensors must have the same shape");
-        // }
-
         // Compute KL divergence
         let kl = (logvar.clone().exp() + mean.powi_scalar(2) - 1.0 - logvar)
             .sum_dim(1) // Sum along the second dimension (columns)
@@ -425,45 +219,6 @@ impl<B: Backend> RnnModel<B> {
 
         kl
     }
-
-    // fn kl_divergence(&self, mean_t: Tensor<B, 2>, logvar_t: Tensor<B, 2>) -> Tensor<B, 1> {
-    //     let mean: Vec<f32> = mean_t
-    //         .to_data()
-    //         .to_vec()
-    //         .expect("Couldn't convert to vector");
-    //     let logvar: Vec<f32> = logvar_t
-    //         .to_data()
-    //         .to_vec()
-    //         .expect("Couldn't convert to vector");
-
-    //     let mean_arr = ArrayView2::from_shape(mean_t.shape().dims::<2>(), &mean)
-    //         .expect("Couldn't crate arrayview");
-    //     let logvar_arr = ArrayView2::from_shape(logvar_t.shape().dims::<2>(), &logvar)
-    //         .expect("Couldn't crate arrayview");
-
-    //     // Calculate standard deviation from log variance
-    //     let std_dev_arr = logvar_arr.mapv(|x| (x / 2.0).exp());
-
-    //     // Compute KL divergence for each dimension
-    //     let kl_divs = mean_arr
-    //         .outer_iter()
-    //         .zip(std_dev_arr.outer_iter())
-    //         .map(|(mean_row, std_dev_row)| {
-    //             let p = mean_row.to_owned();
-    //             let q = std_dev_row.to_owned();
-    //             p.kl_divergence(&q)
-    //                 .expect("KL divergence calculation failed")
-    //         })
-    //         .collect::<Vec<f32>>();
-
-    //     // Sum the KL divergences across dimensions?
-
-    //     let kl_vec = kl_divs.to_vec();
-    //     let kl_vec = kl_vec.as_slice();
-
-    //     // Convert back to Burn Tensor
-    //     Tensor::from_floats(kl_vec, &mean_t.device())
-    // }
 
     pub fn forward(&self, input: Tensor<B, 3>) -> (Tensor<B, 3>, Tensor<B, 1>) {
         let [batch_size, seq_len, _features] = input.dims();
@@ -496,9 +251,30 @@ impl<B: Backend> RnnModel<B> {
             lstm_state = Some(state);
         }
 
-        // Process through hidden layers
-        let mut hidden = lstm_out.reshape([batch_size * seq_len, self.lstm_layers[0].d_hidden]);
+        // // do I need embeddings of some kind for q, k, and v? where do they come from?
+        // let attn_input = MhaInput::new(query, key, value);
+        // let attn_out: MhaOutput<B> = self.encoder_attention.forward(attn_input); // has context, weights
 
+        // After LSTM processing, lstm_out contains your sequence information
+        // Project lstm_out to get Q, K, V
+        let query = self.query_proj.forward(lstm_out.clone());
+        let key = self.key_proj.forward(lstm_out.clone());
+        let value = self.value_proj.forward(lstm_out.clone());
+
+        // Create attention input
+        let attn_input = MhaInput::new(query, key, value);
+        let attn_out: MhaOutput<B> = self.encoder_attention.forward(attn_input);
+
+        // Combine attention output with LSTM output (residual connection)
+        let combined = attn_out.context + lstm_out;
+
+        // Continue with VAE encoding using the attention-enhanced representation
+        let mut hidden = combined.reshape([batch_size * seq_len, self.hidden_size]);
+
+        // Process through hidden layers
+        // let mut hidden = lstm_out.reshape([batch_size * seq_len, self.lstm_layers[0].d_hidden]);
+
+        // TODO: experiement with 0 or 1 hidden layers as there are now plenty of Linear layers in use
         for (i, hidden_layer) in self
             .hidden_layers
             .iter()
@@ -561,8 +337,8 @@ impl<B: Backend> RnnModel<B> {
 
         // Calculate KL divergence and actual loss?
         // Combine losses with beta parameter to control KL term
-        // Beta typically starts small and is annealed up during training
-        let beta = 0.01; // You might want to make this configurable
+        let beta = 0.01; // loss stabilizes lower
+                         // let beta = 1.0; // loss stabilizes higher
         let total_loss = reconstruction_loss + kl_loss.mul_scalar(beta);
 
         // Denormalize for the actual predictions
@@ -573,7 +349,122 @@ impl<B: Backend> RnnModel<B> {
             output: denormalized_output,
             targets: item.targets,
         }
+
+        // // Denormalize outputs for crossing detection
+        // let denormalized_output = normalizer.denormalize(output.clone());
+        // let crossing_loss = self.calculate_crossing_loss(&denormalized_output);
+
+        // // Combine losses with weights
+        // let beta = 0.01; // KL loss weight
+        // let gamma = 0.1; // Crossing loss weight
+        // let total_loss =
+        //     reconstruction_loss + kl_loss.mul_scalar(beta) + crossing_loss.mul_scalar(gamma);
+
+        // RnnOutput {
+        //     loss: total_loss,
+        //     output: denormalized_output,
+        //     targets: item.targets,
+        // }
     }
+
+    // fn segments_intersect(&self, s1: &Segment, s2: &Segment) -> bool {
+    //     // Don't check segments from same polygon at adjacent timestamps
+    //     if s1.polygon_id == s2.polygon_id && (s1.time2 == s2.time1 || s1.time1 == s2.time2) {
+    //         return false;
+    //     }
+
+    //     // Line segment intersection math
+    //     let dx1 = s1.x2 - s1.x1;
+    //     let dy1 = s1.y2 - s1.y1;
+    //     let dx2 = s2.x2 - s2.x1;
+    //     let dy2 = s2.y2 - s2.y1;
+
+    //     let determinant = dx1 * dy2 - dy1 * dx2;
+    //     if determinant.abs() < 1e-8 {
+    //         // Parallel lines
+    //         return false;
+    //     }
+
+    //     let dx3 = s1.x1 - s2.x1;
+    //     let dy3 = s1.y1 - s2.y1;
+
+    //     let t = (dx3 * dy2 - dy3 * dx2) / determinant;
+    //     let u = (dx1 * dy3 - dy1 * dx3) / determinant;
+
+    //     // Check if intersection point lies within both line segments
+    //     t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
+    // }
+
+    // fn calculate_crossing_loss(&self, output: &Tensor<B, 3>) -> Tensor<B, 1> {
+    //     let device = output.device();
+    //     let [batch_size, seq_len, _features] = output.dims();
+
+    //     // Convert tensor to flat vec for easier processing
+    //     let output_data: Vec<f32> = output
+    //         .to_data()
+    //         .to_vec()
+    //         .expect("Couldn't convert output to vec");
+
+    //     // Will store crossing loss for each batch
+    //     let mut crossing_losses = Vec::with_capacity(batch_size);
+
+    //     // Process each batch
+    //     for b in 0..batch_size {
+    //         let mut segments = Vec::new();
+    //         let mut current_polygon = -1;
+    //         let mut polygon_segments = Vec::new();
+
+    //         // Create line segments from consecutive points
+    //         for i in 0..seq_len - 1 {
+    //             // Calculate indices for accessing the flat vector
+    //             let base_idx = (b * seq_len * 6 + i * 6) as usize;
+    //             let next_base_idx = (b * seq_len * 6 + (i + 1) * 6) as usize;
+
+    //             let polygon_id = output_data[base_idx] as i32;
+    //             let time = output_data[base_idx + 1];
+    //             let x1 = output_data[base_idx + 4];
+    //             let y1 = output_data[base_idx + 5];
+    //             let x2 = output_data[next_base_idx + 4];
+    //             let y2 = output_data[next_base_idx + 5];
+    //             let time2 = output_data[next_base_idx + 1];
+
+    //             // If same polygon, add segment
+    //             if polygon_id == current_polygon {
+    //                 polygon_segments.push(Segment::new(x1, y1, x2, y2, polygon_id, time, time2));
+    //             } else {
+    //                 // New polygon started, add accumulated segments
+    //                 if !polygon_segments.is_empty() {
+    //                     segments.extend(polygon_segments.drain(..));
+    //                 }
+    //                 current_polygon = polygon_id;
+    //                 polygon_segments = vec![Segment::new(x1, y1, x2, y2, polygon_id, time, time2)];
+    //             }
+    //         }
+    //         // Add remaining segments from last polygon
+    //         segments.extend(polygon_segments);
+
+    //         // Count intersections
+    //         let mut intersections = 0;
+    //         for i in 0..segments.len() {
+    //             for j in i + 1..segments.len() {
+    //                 if self.segments_intersect(&segments[i], &segments[j]) {
+    //                     intersections += 1;
+    //                 }
+    //             }
+    //         }
+
+    //         // Convert to tensor loss
+    //         // add for each row in the sequence to apply loss to whole sequence and match shape of other loss values
+    //         for i in 0..seq_len {
+    //             crossing_losses.push(intersections as f32);
+    //         }
+    //     }
+
+    //     // Create tensor from crossing losses
+    //     // I repeat the crossing_loss over each row in the sequence to match the shape size
+    //     let data = TensorData::new(crossing_losses, Shape::new([batch_size * seq_len]));
+    //     Tensor::<B, 1>::from_data(data, &output.device())
+    // }
 }
 
 impl<B: AutodiffBackend> TrainStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
@@ -589,208 +480,27 @@ impl<B: Backend> ValidStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
     }
 }
 
-// VAE specific model:
-// const LATENT_SIZE: usize = 32;
-// const HIDDEN_SIZE: usize = 256;
-// const DROPOUT_RATE: f64 = 0.1;
+// Helper struct to represent a line segment
+struct Segment {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    polygon_id: i32,
+    time1: f32,
+    time2: f32,
+}
 
-// #[derive(Module, Debug)]
-// pub struct VaeLstm<B: Backend> {
-//     // Encoder
-//     encoder_lstm: Lstm<B>,
-//     encoder_norm: LayerNorm<B>,
-//     mean_layer: Linear<B>,
-//     logvar_layer: Linear<B>,
-
-//     // Decoder
-//     decoder_lstm: Lstm<B>,
-//     decoder_norm: LayerNorm<B>,
-//     output_layer: Linear<B>,
-
-//     // Shared
-//     dropout: Dropout,
-// }
-
-// #[derive(Debug)]
-// pub struct VaeOutput<B: Backend> {
-//     pub reconstruction: Tensor<B, 3>,
-//     pub targets: Tensor<B, 3>,
-//     pub mean: Tensor<B, 2>,
-//     pub logvar: Tensor<B, 2>,
-//     pub loss: Tensor<B, 1>,
-// }
-
-// impl<B: Backend> VaeLstm<B> {
-//     pub fn new(device: &B::Device) -> Self {
-//         let initializer = burn::nn::Initializer::KaimingNormal {
-//             fan_out_only: false,
-//             gain: 1.0,
-//         };
-
-//         // Encoder - processes prompt sequence
-//         let encoder_lstm = LstmConfig::new(NUM_FEATURES, HIDDEN_SIZE, true)
-//             .with_initializer(initializer.clone())
-//             .init(device);
-
-//         let encoder_norm = LayerNormConfig::new(HIDDEN_SIZE)
-//             .with_epsilon(1e-5)
-//             .init(device);
-
-//         let mean_layer = LinearConfig::new(HIDDEN_SIZE, LATENT_SIZE)
-//             .with_initializer(initializer.clone())
-//             .init(device);
-
-//         let logvar_layer = LinearConfig::new(HIDDEN_SIZE, LATENT_SIZE)
-//             .with_initializer(initializer.clone())
-//             .init(device);
-
-//         // Decoder - generates completion sequence
-//         let decoder_lstm = LstmConfig::new(LATENT_SIZE + NUM_FEATURES, HIDDEN_SIZE, true) // +NUM_FEATURES for conditioning
-//             .with_initializer(initializer.clone())
-//             .init(device);
-
-//         let decoder_norm = LayerNormConfig::new(HIDDEN_SIZE)
-//             .with_epsilon(1e-5)
-//             .init(device);
-
-//         let output_layer = LinearConfig::new(HIDDEN_SIZE, NUM_FEATURES)
-//             .with_initializer(initializer)
-//             .init(device);
-
-//         Self {
-//             encoder_lstm,
-//             encoder_norm,
-//             mean_layer,
-//             logvar_layer,
-//             decoder_lstm,
-//             decoder_norm,
-//             output_layer,
-//             dropout: DropoutConfig::new(DROPOUT_RATE).init(),
-//         }
-//     }
-
-//     fn sample(&self, mean: Tensor<B, 2>, logvar: Tensor<B, 2>, temperature: f64) -> Tensor<B, 2> {
-//         if temperature > 0.0 {
-//             let std = (logvar * 0.5).exp();
-//             let eps = Tensor::rand_like(&mean);
-//             mean + (eps * std * temperature)
-//         } else {
-//             mean // Deterministic
-//         }
-//     }
-
-//     fn kl_divergence(&self, mean: Tensor<B, 2>, logvar: Tensor<B, 2>) -> Tensor<B, 1> {
-//         let kl = -0.5 * (1.0 + logvar - mean.pow(2.0) - logvar.exp());
-//         kl.mean([1])
-//     }
-
-//     pub fn forward_step(&self, item: KeyframeBatch<B>, temperature: f64) -> VaeOutput<B> {
-//         let normalizer = Normalizer::new(&item.inputs.device());
-
-//         // Normalize inputs and targets
-//         let normalized_inputs = normalizer.normalize(item.inputs.clone());
-//         let normalized_targets = normalizer.normalize(item.targets.clone());
-
-//         // Encode prompt sequence
-//         let (encoder_out, _) = self.encoder_lstm.forward(normalized_inputs.clone(), None);
-//         let encoded = self.encoder_norm.forward(encoder_out);
-
-//         // Get latent representation from last timestep
-//         let last_hidden = encoded.slice([.., item.input_lengths.clone() - 1, ..]);
-//         let mean = self.mean_layer.forward(last_hidden.clone());
-//         let logvar = self.logvar_layer.forward(last_hidden);
-
-//         // Sample latent vector
-//         let z = self.sample(mean.clone(), logvar.clone(), temperature);
-
-//         // Prepare decoder input: combine latent vector with prompt features
-//         let [batch_size, target_len, _] = normalized_targets.dims();
-//         let z_expanded = z.unsqueeze(1).repeat([1, target_len, 1]);
-
-//         // Initial prompt state for conditioning
-//         let prompt_state = normalized_inputs
-//             .slice([.., 0, ..])
-//             .unsqueeze(1)
-//             .repeat([1, target_len, 1]);
-//         let decoder_input = Tensor::cat([z_expanded, prompt_state], 2);
-
-//         // Generate completion sequence
-//         let (decoder_out, _) = self.decoder_lstm.forward(decoder_input, None);
-//         let decoded = self.decoder_norm.forward(decoder_out);
-//         let output = self.output_layer.forward(decoded);
-
-//         // Denormalize for final output
-//         let denormalized_output = normalizer.denormalize(output);
-
-//         // Calculate losses
-//         let recon_loss = MseLoss::new().forward(
-//             denormalized_output.clone(),
-//             item.targets.clone(),
-//             burn::nn::loss::Reduction::Mean,
-//         );
-
-//         let kl_loss = self.kl_divergence(mean.clone(), logvar.clone());
-//         let beta = 0.1;
-//         let total_loss = recon_loss + (beta * kl_loss);
-
-//         VaeOutput {
-//             reconstruction: denormalized_output,
-//             targets: item.targets,
-//             mean,
-//             logvar,
-//             loss: total_loss,
-//         }
-//     }
-
-//     pub fn generate(
-//         &self,
-//         prompt: Tensor<B, 3>,
-//         target_len: usize,
-//         temperature: f64,
-//     ) -> Tensor<B, 3> {
-//         let normalizer = Normalizer::new(&prompt.device());
-//         let normalized_prompt = normalizer.normalize(prompt.clone());
-
-//         // Encode prompt
-//         let (encoder_out, _) = self.encoder_lstm.forward(normalized_prompt.clone(), None);
-//         let encoded = self.encoder_norm.forward(encoder_out);
-
-//         // Get latent vector
-//         let last_hidden = encoded.slice([.., encoded.dims()[1] - 1, ..]);
-//         let mean = self.mean_layer.forward(last_hidden);
-//         let logvar = self.logvar_layer.forward(last_hidden);
-//         let z = self.sample(mean, logvar, temperature);
-
-//         // Prepare decoder input
-//         let [batch_size, _, _] = prompt.dims();
-//         let z_expanded = z.unsqueeze(1).repeat([1, target_len, 1]);
-
-//         // Use initial prompt state for conditioning
-//         let prompt_state = normalized_prompt
-//             .slice([.., 0, ..])
-//             .unsqueeze(1)
-//             .repeat([1, target_len, 1]);
-//         let decoder_input = Tensor::cat([z_expanded, prompt_state], 2);
-
-//         // Generate sequence
-//         let (decoder_out, _) = self.decoder_lstm.forward(decoder_input, None);
-//         let decoded = self.decoder_norm.forward(decoder_out);
-//         let output = self.output_layer.forward(decoded);
-
-//         // Denormalize output
-//         normalizer.denormalize(output)
-//     }
-// }
-
-// impl<B: AutodiffBackend> TrainStep<KeyframeBatch<B>, VaeOutput<B>> for VaeLstm<B> {
-//     fn step(&self, item: KeyframeBatch<B>) -> TrainOutput<VaeOutput<B>> {
-//         let output = self.forward_step(item, 1.0); // Use temperature 1.0 during training
-//         TrainOutput::new(self, output.loss.backward(), output)
-//     }
-// }
-
-// impl<B: Backend> ValidStep<KeyframeBatch<B>, VaeOutput<B>> for VaeLstm<B> {
-//     fn step(&self, item: KeyframeBatch<B>) -> VaeOutput<B> {
-//         self.forward_step(item, 0.0) // Use temperature 0.0 for validation
-//     }
-// }
+impl Segment {
+    fn new(x1: f32, y1: f32, x2: f32, y2: f32, polygon_id: i32, time1: f32, time2: f32) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            polygon_id,
+            time1,
+            time2,
+        }
+    }
+}

@@ -98,9 +98,9 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     //     // .with_model_size(config.transformer.d_model)
     //     .init();
 
-    // let lr_scheduler = LinearLrSchedulerConfig::new(1e-4, 1e-6, 100).init();
+    // let lr_scheduler = LinearLrSchedulerConfig::new(1e-3, 1e-4, 200).init();
 
-    let lr_scheduler = ConstantLr::new(2e-3);
+    let lr_scheduler = ConstantLr::new(1e-3);
     // let lr_scheduler = ConstantLr::new(0.1);
 
     // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();

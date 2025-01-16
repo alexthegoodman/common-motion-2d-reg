@@ -5,7 +5,7 @@ use common_motion_2d_reg::{
     training,
 };
 
-static ARTIFACT_DIR: &str = "/tmp/common-motion-2d-vae";
+static ARTIFACT_DIR: &str = "/tmp/common-motion-2d-vae-lstm-attn";
 
 use burn::backend::wgpu::{Wgpu, WgpuDevice};
 
@@ -24,8 +24,8 @@ pub fn run<B: Backend>(device: B::Device) {
 }
 
 fn main() {
-    // run_wgpu();
-    let inference = load_common_motion_2d();
-    println!("Running inference...");
-    inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
+    run_wgpu();
+    // let inference = load_common_motion_2d();
+    // println!("Running inference...");
+    // inference.infer("0, 5, 354, 154, 239, 91, \n1, 5, 544, 244, 106, 240, ".to_string());
 }

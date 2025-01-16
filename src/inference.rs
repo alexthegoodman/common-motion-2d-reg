@@ -20,7 +20,8 @@ pub struct CommonMotionInference<B: Backend> {
 impl<B: Backend> CommonMotionInference<B> {
     pub fn new(device: B::Device) -> CommonMotionInference<B> {
         // Embed the model file directly in the binary
-        const MODEL_BYTES: &[u8] = include_bytes!("D:/tmp/common-motion-2d-vae-e22/model.bin");
+        const MODEL_BYTES: &[u8] =
+            include_bytes!("D:/tmp/common-motion-2d-vae-lstm-attn-e156/model.bin");
 
         // let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
         //     .load(format!("{artifact_dir}/model").into(), &device)
