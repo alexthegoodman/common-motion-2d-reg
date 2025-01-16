@@ -335,8 +335,7 @@ impl<B: Backend> RnnModel<B> {
             burn::nn::loss::Reduction::Mean,
         );
 
-        // Calculate KL divergence and actual loss?
-        // Combine losses with beta parameter to control KL term
+        // *** just VAE ***
         let beta = 0.01; // loss stabilizes lower
                          // let beta = 1.0; // loss stabilizes higher
         let total_loss = reconstruction_loss + kl_loss.mul_scalar(beta);
@@ -350,6 +349,7 @@ impl<B: Backend> RnnModel<B> {
             targets: item.targets,
         }
 
+        // *** with crisscross loss ***
         // // Denormalize outputs for crossing detection
         // let denormalized_output = normalizer.denormalize(output.clone());
         // let crossing_loss = self.calculate_crossing_loss(&denormalized_output);
@@ -359,6 +359,21 @@ impl<B: Backend> RnnModel<B> {
         // let gamma = 0.1; // Crossing loss weight
         // let total_loss =
         //     reconstruction_loss + kl_loss.mul_scalar(beta) + crossing_loss.mul_scalar(gamma);
+
+        // RnnOutput {
+        //     loss: total_loss,
+        //     output: denormalized_output,
+        //     targets: item.targets,
+        // }
+
+        // *** with endpoint loss ***
+        // let denormalized_output = normalizer.denormalize(output.clone());
+        // let endpoint_loss = self.calculate_endpoint_loss(&denormalized_output);
+        // let beta = 0.01; // KL loss weight
+        // let delta = 0.2; // Endpoint loss weight - adjust as needed
+
+        // let total_loss =
+        //     reconstruction_loss + kl_loss.mul_scalar(beta) + endpoint_loss.mul_scalar(delta);
 
         // RnnOutput {
         //     loss: total_loss,
@@ -463,6 +478,69 @@ impl<B: Backend> RnnModel<B> {
     //     // Create tensor from crossing losses
     //     // I repeat the crossing_loss over each row in the sequence to match the shape size
     //     let data = TensorData::new(crossing_losses, Shape::new([batch_size * seq_len]));
+    //     Tensor::<B, 1>::from_data(data, &output.device())
+    // }
+
+    // /// Calculate loss for whether start or end keyframe is off the canvas as it should be
+    // fn calculate_endpoint_loss(&self, output: &Tensor<B, 3>) -> Tensor<B, 1> {
+    //     let device = output.device();
+    //     let [batch_size, seq_len, _features] = output.dims();
+    //     let output_data: Vec<f32> = output
+    //         .to_data()
+    //         .to_vec()
+    //         .expect("Couldn't convert output to vec");
+
+    //     let mut endpoint_losses = Vec::with_capacity(batch_size);
+
+    //     // Process each batch
+    //     for b in 0..batch_size {
+    //         let mut current_polygon = -1;
+    //         let mut polygon_start_idx = 0;
+    //         let mut batch_loss = 0.0f32;
+
+    //         // Examine each point to find polygon boundaries
+    //         for i in 0..seq_len {
+    //             let base_idx = (b * seq_len * 6 + i * 6) as usize;
+    //             let polygon_id = output_data[base_idx] as i32;
+
+    //             // If we've found a new polygon or reached the end
+    //             if polygon_id != current_polygon || i == seq_len - 1 {
+    //                 if current_polygon != -1 {
+    //                     // Check end point of previous polygon
+    //                     let end_idx = base_idx - 6;
+    //                     let end_x = output_data[end_idx + 4];
+    //                     let end_y = output_data[end_idx + 5];
+
+    //                     // Add loss if end point is inside canvas
+    //                     if end_x >= 0.0 && end_x <= 800.0 && end_y >= 0.0 && end_y <= 450.0 {
+    //                         batch_loss += 1.0;
+    //                     }
+    //                 }
+
+    //                 if i < seq_len - 1 {
+    //                     // Check start point of new polygon
+    //                     let start_x = output_data[base_idx + 4];
+    //                     let start_y = output_data[base_idx + 5];
+
+    //                     // Add loss if start point is inside canvas
+    //                     if start_x >= 0.0 && start_x <= 800.0 && start_y >= 0.0 && start_y <= 450.0
+    //                     {
+    //                         batch_loss += 1.0;
+    //                     }
+
+    //                     current_polygon = polygon_id;
+    //                     polygon_start_idx = i;
+    //                 }
+    //             }
+    //         }
+
+    //         for i in 0..seq_len {
+    //             endpoint_losses.push(batch_loss);
+    //         }
+    //     }
+
+    //     // Create tensor from endpoint losses
+    //     let data = TensorData::new(endpoint_losses, Shape::new([batch_size * seq_len]));
     //     Tensor::<B, 1>::from_data(data, &output.device())
     // }
 }
