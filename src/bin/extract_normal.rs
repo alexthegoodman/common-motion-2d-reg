@@ -2,7 +2,8 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
 fn main() -> io::Result<()> {
-    let file = File::open("D:/projects/common/common-motion-2d-reg/backup/augmented.txt")?;
+    let file =
+        File::open("D:/projects/common/common-motion-2d-reg/backup/augmented_perc_stretched.txt")?;
     let reader = BufReader::new(file);
 
     // Store all values for each column

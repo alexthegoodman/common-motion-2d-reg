@@ -201,14 +201,25 @@ pub struct Normalizer<B: Backend> {
 impl<B: Backend> Normalizer<B> {
     pub fn new(device: &B::Device) -> Self {
         // Based on your data format: [polygon_index, time, width, height, x, y]
+        // for augmented.txt:
         // Column 0: Mean = 1.265, Std = 1.171
         // Column 1: Mean = 9.286, Std = 7.406
         // Column 2: Mean = 192.398, Std = 104.484
         // Column 3: Mean = 153.433, Std = 71.826
         // Column 4: Mean = 286.305, Std = 205.695
         // Column 5: Mean = 199.321, Std = 136.268
-        let means = Tensor::from_floats([1.265, 9.286, 192.398, 153.433, 286.305, 199.321], device);
-        let stds = Tensor::from_floats([1.171, 7.406, 104.484, 71.826, 205.695, 136.268], device);
+        // let means = Tensor::from_floats([1.265, 9.286, 192.398, 153.433, 286.305, 199.321], device);
+        // let stds = Tensor::from_floats([1.171, 7.406, 104.484, 71.826, 205.695, 136.268], device);
+
+        // for augmented_perc_stretched.txt:
+        // Column 0: Mean = 1.262, Std = 1.170
+        // Column 1: Mean = 9.279, Std = 7.403
+        // Column 2: Mean = 190.607, Std = 105.001
+        // Column 3: Mean = 152.124, Std = 72.415
+        // Column 4: Mean = 35.615, Std = 34.372
+        // Column 5: Mean = 32.796, Std = 32.502
+        let means = Tensor::from_floats([1.262, 9.279, 190.607, 152.124, 35.615, 32.796], device);
+        let stds = Tensor::from_floats([1.170, 7.403, 105.001, 72.415, 34.372, 32.502], device);
 
         Self { means, stds }
     }
