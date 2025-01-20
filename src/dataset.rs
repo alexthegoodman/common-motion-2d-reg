@@ -4,7 +4,7 @@ use burn::{
     tensor::Tensor,
 };
 
-pub const NUM_FEATURES: usize = 6;
+pub const NUM_FEATURES: usize = 7;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct KeyframeItem {
@@ -14,6 +14,7 @@ pub struct KeyframeItem {
     pub height: f32,
     pub x: f32,
     pub y: f32,
+    pub direction: f32, // testing
 }
 
 pub struct MotionDataset {
@@ -50,7 +51,7 @@ impl MotionDataset {
                             .filter_map(|v| v.trim().parse().ok())
                             .collect();
 
-                        if values.len() == 6 {
+                        if values.len() == NUM_FEATURES {
                             Some(KeyframeItem {
                                 polygon_index: values[0],
                                 time: values[1],
@@ -58,6 +59,7 @@ impl MotionDataset {
                                 height: values[3],
                                 x: values[4],
                                 y: values[5],
+                                direction: values[6],
                             })
                         } else {
                             None
@@ -133,6 +135,7 @@ impl<B: Backend> KeyframeBatcher<B> {
                     data[data_idx + 3] = item.height;
                     data[data_idx + 4] = item.x;
                     data[data_idx + 5] = item.y;
+                    data[data_idx + 6] = item.direction;
                     data_idx += NUM_FEATURES;
                 }
             }
@@ -218,8 +221,18 @@ impl<B: Backend> Normalizer<B> {
         // Column 3: Mean = 152.124, Std = 72.415
         // Column 4: Mean = 35.615, Std = 34.372
         // Column 5: Mean = 32.796, Std = 32.502
-        let means = Tensor::from_floats([1.262, 9.279, 190.607, 152.124, 35.615, 32.796], device);
-        let stds = Tensor::from_floats([1.170, 7.403, 105.001, 72.415, 34.372, 32.502], device);
+
+        // with direction txt
+        // Column 6: Mean = 0.026, Std = 1.346
+
+        let means = Tensor::from_floats(
+            [1.262, 9.279, 190.607, 152.124, 35.615, 32.796, 0.026],
+            device,
+        );
+        let stds = Tensor::from_floats(
+            [1.170, 7.403, 105.001, 72.415, 34.372, 32.502, 1.346],
+            device,
+        );
 
         Self { means, stds }
     }

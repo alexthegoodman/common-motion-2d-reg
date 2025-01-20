@@ -8,7 +8,7 @@ use burn::{
 // use textplots::{Chart, ColorPlot, Shape};
 
 use crate::{
-    dataset::{KeyframeBatcher, KeyframeItem, MotionDataset, Normalizer},
+    dataset::{KeyframeBatcher, KeyframeItem, MotionDataset, Normalizer, NUM_FEATURES},
     model::{RnnModel, RnnModelConfig, RnnModelRecord},
 };
 
@@ -21,7 +21,7 @@ impl<B: Backend> CommonMotionInference<B> {
     pub fn new(device: B::Device) -> CommonMotionInference<B> {
         // Embed the model file directly in the binary
         const MODEL_BYTES: &[u8] =
-            include_bytes!("D:/tmp/common-motion-2d-vae-lstm-attn-stretched/model.bin");
+            include_bytes!("D:/tmp/cm-2d-vae-lstm-attn-stretch-dir/model.bin");
 
         // let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
         //     .load(format!("{artifact_dir}/model").into(), &device)
@@ -65,7 +65,7 @@ impl<B: Backend> CommonMotionInference<B> {
                     .filter_map(|v| v.trim().parse().ok())
                     .collect();
 
-                if values.len() == 6 {
+                if values.len() == NUM_FEATURES {
                     sequence.push(KeyframeItem {
                         polygon_index: values[0],
                         time: values[1],
@@ -73,6 +73,7 @@ impl<B: Backend> CommonMotionInference<B> {
                         height: values[3],
                         x: values[4],
                         y: values[5],
+                        direction: values[6],
                     });
                 }
             }
@@ -95,6 +96,7 @@ impl<B: Backend> CommonMotionInference<B> {
                     height: 0.0,
                     x: 0.0,
                     y: 0.0,
+                    direction: 0.0,
                 });
             }
             target_items.push(target_sequence);
@@ -148,7 +150,7 @@ impl<B: Backend> CommonMotionInference<B> {
 
         // print predicted values in lines of 6 columns
         for (i, predicted) in predicted_data.iter::<f32>().enumerate() {
-            if i % 6 == 0 {
+            if i % NUM_FEATURES == 0 {
                 println!();
             }
             print!("{}, ", predicted);

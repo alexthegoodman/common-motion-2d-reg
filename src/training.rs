@@ -56,10 +56,12 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     B::seed(config.seed);
 
     // Define train/valid datasets and dataloaders
-    let train_dataset =
-        MotionDataset::from_string(include_str!("../backup/augmented_perc_stretched.txt"));
-    let valid_dataset =
-        MotionDataset::from_string(include_str!("../backup/test_perc_stretched.txt"));
+    let train_dataset = MotionDataset::from_string(include_str!(
+        "../backup/augmented_perc_stretched_with_direction.txt"
+    ));
+    let valid_dataset = MotionDataset::from_string(include_str!(
+        "../backup/test_perc_stretched_with_direction.txt"
+    ));
 
     println!("Train Dataset Size: {}", train_dataset.len());
     println!("Valid Dataset Size: {}", valid_dataset.len());

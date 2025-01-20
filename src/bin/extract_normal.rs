@@ -3,11 +3,11 @@ use std::io::{self, BufRead, BufReader};
 
 fn main() -> io::Result<()> {
     let file =
-        File::open("D:/projects/common/common-motion-2d-reg/backup/augmented_perc_stretched.txt")?;
+        File::open("D:/projects/common/common-motion-2d-reg/backup/augmented_perc_stretched_with_direction.txt")?;
     let reader = BufReader::new(file);
 
     // Store all values for each column
-    let mut columns: Vec<Vec<f64>> = vec![Vec::new(); 6];
+    let mut columns: Vec<Vec<f64>> = vec![Vec::new(); 7];
 
     for line in reader.lines() {
         let line = line?;
