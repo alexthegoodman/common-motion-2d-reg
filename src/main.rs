@@ -5,7 +5,7 @@ use common_motion_2d_reg::{
     training,
 };
 
-static ARTIFACT_DIR: &str = "/tmp/cm-2d-vae-lstm-attn-stretch-dir";
+static ARTIFACT_DIR: &str = "/tmp/cm-2d-vae-lstm-attn-stretch-dir-b1";
 
 use burn::backend::wgpu::{Wgpu, WgpuDevice};
 

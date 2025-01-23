@@ -29,13 +29,14 @@ pub struct ExpConfig {
     pub optimizer: AdamWConfig,
 
     // #[config(default = 16)]
-    #[config(default = 256)]
+    // #[config(default = 256)]
     // #[config(default = 128)]
     // #[config(default = 64)]
     // #[config(default = 2)]
     // #[config(default = 4)]
     // #[config(default = 4)]
     // targets large so batch size 1? possible vanishing gradients in lstm with larger batch size?
+    #[config(default = 1)]
     pub batch_size: usize,
 }
 
@@ -104,7 +105,8 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // let lr_scheduler = LinearLrSchedulerConfig::new(1e-3, 1e-4, 200).init();
 
-    let lr_scheduler = ConstantLr::new(1e-3);
+    let lr_scheduler = ConstantLr::new(1e-4);
+    // let lr_scheduler = ConstantLr::new(1e-3); // batch size 256
     // let lr_scheduler = ConstantLr::new(0.1);
 
     // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();
