@@ -7,7 +7,8 @@ use burn::{
     module::Module,
     nn::{
         attention::{MhaInput, MhaOutput, MultiHeadAttention, MultiHeadAttentionConfig},
-        loss::MseLoss,
+        conv::{Conv1d, Conv1dConfig},
+        loss::{BinaryCrossEntropyLoss, BinaryCrossEntropyLossConfig, MseLoss, Reduction},
         Dropout, DropoutConfig, Gelu, LayerNorm, LayerNormConfig, LeakyRelu, LeakyReluConfig,
         Linear, LinearConfig, Lstm, LstmConfig, Relu,
     },
@@ -21,7 +22,95 @@ use burn::{
     },
 };
 
-// modfiied model approach:
+// #[derive(Module, Debug)]
+// pub struct Discriminator<B: Backend> {
+//     conv_layers: Vec<Conv1d<B>>,
+//     dense_layers: Vec<Linear<B>>,
+//     output_layer: Linear<B>,
+//     activation: Gelu,
+// }
+
+#[derive(Config)]
+pub struct DiscriminatorConfig {
+    #[config(default = 32)]
+    pub conv_channels: usize,
+    #[config(default = 3)]
+    pub num_conv_layers: usize,
+    #[config(default = 2)]
+    pub num_dense_layers: usize,
+    #[config(default = 128)]
+    pub dense_size: usize,
+}
+
+#[derive(Module, Debug)]
+pub struct Discriminator<B: Backend> {
+    conv_layers: Vec<Conv1d<B>>,
+    dense_layers: Vec<Linear<B>>,
+    output_layer: Linear<B>,
+    activation: LeakyRelu,
+}
+
+impl DiscriminatorConfig {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Discriminator<B> {
+        // Use slightly different initialization for discriminator
+        let initializer = burn::nn::Initializer::KaimingUniform {
+            fan_out_only: false,
+            gain: (2.0f64).sqrt(), // For LeakyReLU
+        };
+
+        // Conv layers with increasing channels
+        let mut conv_layers = Vec::with_capacity(self.num_conv_layers);
+        for i in 0..self.num_conv_layers {
+            let in_channels = if i == 0 {
+                NUM_FEATURES
+            } else {
+                self.conv_channels
+            };
+
+            conv_layers.push(
+                Conv1dConfig::new(in_channels, self.conv_channels, 3)
+                    // .with_kernel_size(3)
+                    .with_stride(2)
+                    .with_padding(burn::nn::PaddingConfig1d::Explicit(1))
+                    .with_initializer(initializer.clone())
+                    .init(device),
+            );
+        }
+
+        // Dense layers with consistent size
+        let mut dense_layers = Vec::with_capacity(self.num_dense_layers);
+        for i in 0..self.num_dense_layers {
+            let in_features = if i == 0 {
+                self.conv_channels
+            } else {
+                self.dense_size
+            };
+
+            dense_layers.push(
+                LinearConfig::new(in_features, self.dense_size)
+                    .with_bias(true)
+                    .with_initializer(initializer.clone())
+                    .init(device),
+            );
+        }
+
+        // Output layer for binary classification
+        let output_layer = LinearConfig::new(self.dense_size, 1)
+            .with_bias(true)
+            .with_initializer(initializer)
+            .init(device);
+
+        Discriminator {
+            conv_layers,
+            dense_layers,
+            output_layer,
+            activation: LeakyReluConfig::new()
+                .with_negative_slope(LEAKY_RELU_SLOPE)
+                .init(),
+        }
+    }
+}
+
 #[derive(Module, Debug)]
 pub struct RnnModel<B: Backend> {
     lstm_layers: Vec<Lstm<B>>,
@@ -43,6 +132,9 @@ pub struct RnnModel<B: Backend> {
     query_proj: Linear<B>,
     key_proj: Linear<B>,
     value_proj: Linear<B>,
+
+    // GAN capability
+    discriminator: Discriminator<B>,
 
     // for convenience
     pub hidden_size: usize,
@@ -86,8 +178,8 @@ const DROPOUT_RATE: f64 = 0.2;
 impl RnnModelConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> RnnModel<B> {
         let mut lstm_layers: Vec<Lstm<B>> = Vec::with_capacity(NUM_LSTM_LAYERS);
-        let mut layer_norms: Vec<LayerNorm<B>> = Vec::with_capacity(NUM_LSTM_LAYERS);
-        let mut hidden_norms: Vec<LayerNorm<B>> = Vec::with_capacity(3); // For hidden layers
+        // let mut layer_norms: Vec<LayerNorm<B>> = Vec::with_capacity(NUM_LSTM_LAYERS);
+        // let mut hidden_norms: Vec<LayerNorm<B>> = Vec::with_capacity(3); // For hidden layers
 
         // Use scaled initialization to help with activation scaling
         let initializer = burn::nn::Initializer::KaimingNormal {
@@ -180,6 +272,10 @@ impl RnnModelConfig {
             .with_initializer(initializer.clone())
             .init(device);
 
+        // Initialize discriminator
+        let discriminator_config = DiscriminatorConfig::new();
+        let discriminator = discriminator_config.init(device);
+
         RnnModel {
             // lstm
             lstm_layers,
@@ -198,6 +294,8 @@ impl RnnModelConfig {
             query_proj,
             key_proj,
             value_proj,
+            // gan
+            discriminator,
             // config
             hidden_size: self.hidden_size,
             latent_dim: self.latent_dim,
@@ -251,10 +349,6 @@ impl<B: Backend> RnnModel<B> {
             lstm_state = Some(state);
         }
 
-        // // do I need embeddings of some kind for q, k, and v? where do they come from?
-        // let attn_input = MhaInput::new(query, key, value);
-        // let attn_out: MhaOutput<B> = self.encoder_attention.forward(attn_input); // has context, weights
-
         // After LSTM processing, lstm_out contains your sequence information
         // Project lstm_out to get Q, K, V
         let query = self.query_proj.forward(lstm_out.clone());
@@ -271,10 +365,6 @@ impl<B: Backend> RnnModel<B> {
         // Continue with VAE encoding using the attention-enhanced representation
         let mut hidden = combined.reshape([batch_size * seq_len, self.hidden_size]);
 
-        // Process through hidden layers
-        // let mut hidden = lstm_out.reshape([batch_size * seq_len, self.lstm_layers[0].d_hidden]);
-
-        // TODO: experiement with 0 or 1 hidden layers as there are now plenty of Linear layers in use
         for (i, hidden_layer) in self
             .hidden_layers
             .iter()
@@ -320,27 +410,91 @@ impl<B: Backend> RnnModel<B> {
         (output.reshape([batch_size, seq_len, NUM_FEATURES]), kl_loss)
     }
 
+    // pub fn forward_step(&self, item: KeyframeBatch<B>) -> RnnOutput<B> {
+    //     let normalizer = Normalizer::new(&item.inputs.device());
+
+    //     // Normalize inputs and targets
+    //     let normalized_inputs: Tensor<B, 3> = normalizer.normalize(item.inputs.clone());
+    //     let normalized_targets: Tensor<B, 3> = normalizer.normalize(item.targets.clone());
+
+    //     let (output, kl_loss) = self.forward(normalized_inputs);
+
+    //     let reconstruction_loss = MseLoss::new().forward(
+    //         output.clone(),
+    //         normalized_targets.clone(),
+    //         burn::nn::loss::Reduction::Mean,
+    //     );
+
+    //     // *** just VAE ***
+    //     let beta = 0.01; // loss stabilizes lower
+    //                      // let beta = 1.0; // loss stabilizes higher
+    //     let total_loss = reconstruction_loss + kl_loss.mul_scalar(beta);
+
+    //     // Denormalize for the actual predictions
+    //     let denormalized_output = normalizer.denormalize(output);
+
+    //     RnnOutput {
+    //         loss: total_loss,
+    //         output: denormalized_output,
+    //         targets: item.targets,
+    //     }
+    // }
+
+    fn discriminator_loss(
+        &self,
+        real_sequences: Tensor<B, 3>,
+        generated_sequences: Tensor<B, 3>,
+    ) -> Tensor<B, 1> {
+        // Real sequences should be classified as 1
+        let real_labels = real_sequences
+            .clone()
+            .reshape([real_sequences.clone().dims()[0], 1])
+            .ones_like()
+            .int();
+        // Generated sequences should be classified as 0
+        let fake_labels = real_sequences
+            .clone()
+            .reshape([generated_sequences.clone().dims()[0], 1])
+            .zeros_like()
+            .int();
+
+        let real_scores = self.discriminator.forward(real_sequences);
+        let fake_scores = self.discriminator.forward(generated_sequences);
+
+        // Binary cross entropy loss
+        let real_loss = BinaryCrossEntropyLossConfig::new().init(&real_labels.device());
+        let real_loss = real_loss.forward(real_scores, real_labels);
+
+        let fake_loss = BinaryCrossEntropyLossConfig::new().init(&fake_labels.device());
+        let fake_loss = fake_loss.forward(fake_scores, fake_labels);
+
+        real_loss + fake_loss
+    }
+
     pub fn forward_step(&self, item: KeyframeBatch<B>) -> RnnOutput<B> {
         let normalizer = Normalizer::new(&item.inputs.device());
 
         // Normalize inputs and targets
-        let normalized_inputs: Tensor<B, 3> = normalizer.normalize(item.inputs.clone());
-        let normalized_targets: Tensor<B, 3> = normalizer.normalize(item.targets.clone());
+        let normalized_inputs = normalizer.normalize(item.inputs.clone());
+        let normalized_targets = normalizer.normalize(item.targets.clone());
 
+        // Generator forward pass
         let (output, kl_loss) = self.forward(normalized_inputs);
 
-        let reconstruction_loss = MseLoss::new().forward(
-            output.clone(),
-            normalized_targets.clone(),
-            burn::nn::loss::Reduction::Mean,
-        );
+        // Reconstruction loss (same as before)
+        let reconstruction_loss =
+            MseLoss::new().forward(output.clone(), normalized_targets.clone(), Reduction::Mean);
 
-        // *** just VAE ***
-        let beta = 0.01; // loss stabilizes lower
-                         // let beta = 1.0; // loss stabilizes higher
-        let total_loss = reconstruction_loss + kl_loss.mul_scalar(beta);
+        // Discriminator loss
+        let gen_loss = self.discriminator_loss(normalized_targets, output.clone());
 
-        // Denormalize for the actual predictions
+        // Combined loss with weights
+        let beta = 0.01; // VAE KL weight
+        let lambda = 0.5; // GAN loss weight
+        let total_loss =
+            reconstruction_loss + kl_loss.mul_scalar(beta) + gen_loss.mul_scalar(lambda);
+
+        // Denormalize output
         let denormalized_output = normalizer.denormalize(output);
 
         RnnOutput {
@@ -348,201 +502,38 @@ impl<B: Backend> RnnModel<B> {
             output: denormalized_output,
             targets: item.targets,
         }
-
-        // *** with crisscross loss ***
-        // // Denormalize outputs for crossing detection
-        // let denormalized_output = normalizer.denormalize(output.clone());
-        // let crossing_loss = self.calculate_crossing_loss(&denormalized_output);
-
-        // // Combine losses with weights
-        // let beta = 0.01; // KL loss weight
-        // let gamma = 0.1; // Crossing loss weight
-        // let total_loss =
-        //     reconstruction_loss + kl_loss.mul_scalar(beta) + crossing_loss.mul_scalar(gamma);
-
-        // RnnOutput {
-        //     loss: total_loss,
-        //     output: denormalized_output,
-        //     targets: item.targets,
-        // }
-
-        // *** with endpoint loss ***
-        // let denormalized_output = normalizer.denormalize(output.clone());
-        // let endpoint_loss = self.calculate_endpoint_loss(&denormalized_output);
-        // let beta = 0.01; // KL loss weight
-        // let delta = 0.2; // Endpoint loss weight - adjust as needed
-
-        // let total_loss =
-        //     reconstruction_loss + kl_loss.mul_scalar(beta) + endpoint_loss.mul_scalar(delta);
-
-        // RnnOutput {
-        //     loss: total_loss,
-        //     output: denormalized_output,
-        //     targets: item.targets,
-        // }
     }
+}
 
-    // fn segments_intersect(&self, s1: &Segment, s2: &Segment) -> bool {
-    //     // Don't check segments from same polygon at adjacent timestamps
-    //     if s1.polygon_id == s2.polygon_id && (s1.time2 == s2.time1 || s1.time1 == s2.time2) {
-    //         return false;
-    //     }
+// Discriminator implementation
+impl<B: Backend> Discriminator<B> {
+    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 2> {
+        let [batch_size, seq_len, features] = input.dims();
 
-    //     // Line segment intersection math
-    //     let dx1 = s1.x2 - s1.x1;
-    //     let dy1 = s1.y2 - s1.y1;
-    //     let dx2 = s2.x2 - s2.x1;
-    //     let dy2 = s2.y2 - s2.y1;
+        // Reshape for 1D convolutions
+        // let mut x = input.transpose(1, 2); // [batch, features, seq_len]
+        let mut x = input.swap_dims(1, 2);
 
-    //     let determinant = dx1 * dy2 - dy1 * dx2;
-    //     if determinant.abs() < 1e-8 {
-    //         // Parallel lines
-    //         return false;
-    //     }
+        // Conv layers
+        for conv in &self.conv_layers {
+            x = conv.forward(x);
+            x = self.activation.forward(x);
+        }
 
-    //     let dx3 = s1.x1 - s2.x1;
-    //     let dy3 = s1.y1 - s2.y1;
+        // Global average pooling
+        let x = x.mean_dim(2); // [batch, features]
 
-    //     let t = (dx3 * dy2 - dy3 * dx2) / determinant;
-    //     let u = (dx1 * dy3 - dy1 * dx3) / determinant;
+        // Dense layers
+        let flattened_size = x.dims()[1]; // Get feature dimension size after conv layers
+        let mut x = x.reshape([batch_size, flattened_size]);
+        for dense in &self.dense_layers {
+            x = dense.forward(x);
+            x = self.activation.forward(x);
+        }
 
-    //     // Check if intersection point lies within both line segments
-    //     t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0
-    // }
-
-    // fn calculate_crossing_loss(&self, output: &Tensor<B, 3>) -> Tensor<B, 1> {
-    //     let device = output.device();
-    //     let [batch_size, seq_len, _features] = output.dims();
-
-    //     // Convert tensor to flat vec for easier processing
-    //     let output_data: Vec<f32> = output
-    //         .to_data()
-    //         .to_vec()
-    //         .expect("Couldn't convert output to vec");
-
-    //     // Will store crossing loss for each batch
-    //     let mut crossing_losses = Vec::with_capacity(batch_size);
-
-    //     // Process each batch
-    //     for b in 0..batch_size {
-    //         let mut segments = Vec::new();
-    //         let mut current_polygon = -1;
-    //         let mut polygon_segments = Vec::new();
-
-    //         // Create line segments from consecutive points
-    //         for i in 0..seq_len - 1 {
-    //             // Calculate indices for accessing the flat vector
-    //             let base_idx = (b * seq_len * 6 + i * 6) as usize;
-    //             let next_base_idx = (b * seq_len * 6 + (i + 1) * 6) as usize;
-
-    //             let polygon_id = output_data[base_idx] as i32;
-    //             let time = output_data[base_idx + 1];
-    //             let x1 = output_data[base_idx + 4];
-    //             let y1 = output_data[base_idx + 5];
-    //             let x2 = output_data[next_base_idx + 4];
-    //             let y2 = output_data[next_base_idx + 5];
-    //             let time2 = output_data[next_base_idx + 1];
-
-    //             // If same polygon, add segment
-    //             if polygon_id == current_polygon {
-    //                 polygon_segments.push(Segment::new(x1, y1, x2, y2, polygon_id, time, time2));
-    //             } else {
-    //                 // New polygon started, add accumulated segments
-    //                 if !polygon_segments.is_empty() {
-    //                     segments.extend(polygon_segments.drain(..));
-    //                 }
-    //                 current_polygon = polygon_id;
-    //                 polygon_segments = vec![Segment::new(x1, y1, x2, y2, polygon_id, time, time2)];
-    //             }
-    //         }
-    //         // Add remaining segments from last polygon
-    //         segments.extend(polygon_segments);
-
-    //         // Count intersections
-    //         let mut intersections = 0;
-    //         for i in 0..segments.len() {
-    //             for j in i + 1..segments.len() {
-    //                 if self.segments_intersect(&segments[i], &segments[j]) {
-    //                     intersections += 1;
-    //                 }
-    //             }
-    //         }
-
-    //         // Convert to tensor loss
-    //         // add for each row in the sequence to apply loss to whole sequence and match shape of other loss values
-    //         for i in 0..seq_len {
-    //             crossing_losses.push(intersections as f32);
-    //         }
-    //     }
-
-    //     // Create tensor from crossing losses
-    //     // I repeat the crossing_loss over each row in the sequence to match the shape size
-    //     let data = TensorData::new(crossing_losses, Shape::new([batch_size * seq_len]));
-    //     Tensor::<B, 1>::from_data(data, &output.device())
-    // }
-
-    // /// Calculate loss for whether start or end keyframe is off the canvas as it should be
-    // fn calculate_endpoint_loss(&self, output: &Tensor<B, 3>) -> Tensor<B, 1> {
-    //     let device = output.device();
-    //     let [batch_size, seq_len, _features] = output.dims();
-    //     let output_data: Vec<f32> = output
-    //         .to_data()
-    //         .to_vec()
-    //         .expect("Couldn't convert output to vec");
-
-    //     let mut endpoint_losses = Vec::with_capacity(batch_size);
-
-    //     // Process each batch
-    //     for b in 0..batch_size {
-    //         let mut current_polygon = -1;
-    //         let mut polygon_start_idx = 0;
-    //         let mut batch_loss = 0.0f32;
-
-    //         // Examine each point to find polygon boundaries
-    //         for i in 0..seq_len {
-    //             let base_idx = (b * seq_len * 6 + i * 6) as usize;
-    //             let polygon_id = output_data[base_idx] as i32;
-
-    //             // If we've found a new polygon or reached the end
-    //             if polygon_id != current_polygon || i == seq_len - 1 {
-    //                 if current_polygon != -1 {
-    //                     // Check end point of previous polygon
-    //                     let end_idx = base_idx - 6;
-    //                     let end_x = output_data[end_idx + 4];
-    //                     let end_y = output_data[end_idx + 5];
-
-    //                     // Add loss if end point is inside canvas
-    //                     if end_x >= 0.0 && end_x <= 800.0 && end_y >= 0.0 && end_y <= 450.0 {
-    //                         batch_loss += 1.0;
-    //                     }
-    //                 }
-
-    //                 if i < seq_len - 1 {
-    //                     // Check start point of new polygon
-    //                     let start_x = output_data[base_idx + 4];
-    //                     let start_y = output_data[base_idx + 5];
-
-    //                     // Add loss if start point is inside canvas
-    //                     if start_x >= 0.0 && start_x <= 800.0 && start_y >= 0.0 && start_y <= 450.0
-    //                     {
-    //                         batch_loss += 1.0;
-    //                     }
-
-    //                     current_polygon = polygon_id;
-    //                     polygon_start_idx = i;
-    //                 }
-    //             }
-    //         }
-
-    //         for i in 0..seq_len {
-    //             endpoint_losses.push(batch_loss);
-    //         }
-    //     }
-
-    //     // Create tensor from endpoint losses
-    //     let data = TensorData::new(endpoint_losses, Shape::new([batch_size * seq_len]));
-    //     Tensor::<B, 1>::from_data(data, &output.device())
-    // }
+        // Output layer with sigmoid for binary classification
+        self.output_layer.forward(x)
+    }
 }
 
 impl<B: AutodiffBackend> TrainStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
@@ -555,30 +546,5 @@ impl<B: AutodiffBackend> TrainStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<
 impl<B: Backend> ValidStep<KeyframeBatch<B>, RnnOutput<B>> for RnnModel<B> {
     fn step(&self, item: KeyframeBatch<B>) -> RnnOutput<B> {
         self.forward_step(item)
-    }
-}
-
-// Helper struct to represent a line segment
-struct Segment {
-    x1: f32,
-    y1: f32,
-    x2: f32,
-    y2: f32,
-    polygon_id: i32,
-    time1: f32,
-    time2: f32,
-}
-
-impl Segment {
-    fn new(x1: f32, y1: f32, x2: f32, y2: f32, polygon_id: i32, time1: f32, time2: f32) -> Self {
-        Self {
-            x1,
-            y1,
-            x2,
-            y2,
-            polygon_id,
-            time1,
-            time2,
-        }
     }
 }

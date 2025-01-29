@@ -35,7 +35,7 @@ pub struct ExpConfig {
     // #[config(default = 2)]
     // #[config(default = 4)]
     // #[config(default = 4)]
-    // targets large so batch size 1? possible vanishing gradients in lstm with larger batch size?
+    // batch size of just 1 greatly reduces confusion / mixing in model learning for this task
     #[config(default = 1)]
     pub batch_size: usize,
 }
@@ -50,7 +50,6 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     create_artifact_dir(artifact_dir);
 
     // Config
-    // let optimizer = AdamConfig::new();
     let optimizer = AdamWConfig::new().with_weight_decay(1.0e-8);
     let config = ExpConfig::new(optimizer);
     let model = RnnModelConfig::new().init(&device);
@@ -70,21 +69,6 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
     let batcher_train = KeyframeBatcher::<B>::new(device.clone());
 
     let batcher_test = KeyframeBatcher::<B::InnerBackend>::new(device.clone());
-
-    // print 5 sequences from train
-    // for i in 0..5 {
-    //     let (inputs, targets) = train_dataset.get(i).unwrap();
-    //     println!("Train Sequence inputs {}: {:?}", i, inputs.len());
-    //     // print input data
-    //     for input in inputs.iter() {
-    //         println!("{:?}", input);
-    //     }
-    //     println!("Train Sequence targets {}: {:?}", i, targets.len());
-    //     // print input data
-    //     for target in targets.iter() {
-    //         println!("{:?}", target);
-    //     }
-    // }
 
     let dataloader_train = DataLoaderBuilder::new(batcher_train)
         .batch_size(config.batch_size)
