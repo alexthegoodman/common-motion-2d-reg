@@ -10,7 +10,7 @@ use burn::{
         conv::{Conv1d, Conv1dConfig},
         loss::{BinaryCrossEntropyLoss, BinaryCrossEntropyLossConfig, MseLoss, Reduction},
         Dropout, DropoutConfig, Gelu, LayerNorm, LayerNormConfig, LeakyRelu, LeakyReluConfig,
-        Linear, LinearConfig, Lstm, LstmConfig, Relu,
+        Linear, LinearConfig, Lstm, LstmConfig, Relu, Sigmoid,
     },
     tensor::{
         backend::{AutodiffBackend, Backend},
@@ -32,46 +32,50 @@ use burn::{
 
 #[derive(Config)]
 pub struct DiscriminatorConfig {
-    #[config(default = 32)]
-    pub conv_channels: usize,
-    #[config(default = 3)]
-    pub num_conv_layers: usize,
+    // #[config(default = 64)]
+    // #[config(default = 32)]
+    #[config(default = 256)]
+    pub hidden_size: usize,
+    // #[config(default = 4)]
+    // #[config(default = 3)]
+    #[config(default = 1)]
+    pub num_lstm_layers: usize,
+    // #[config(default = 3)]
     #[config(default = 2)]
     pub num_dense_layers: usize,
-    #[config(default = 128)]
+    #[config(default = 256)]
+    // #[config(default = 128)]
     pub dense_size: usize,
 }
 
 #[derive(Module, Debug)]
 pub struct Discriminator<B: Backend> {
-    conv_layers: Vec<Conv1d<B>>,
+    lstm_layers: Vec<Lstm<B>>,
     dense_layers: Vec<Linear<B>>,
     output_layer: Linear<B>,
-    activation: LeakyRelu,
+    activation: Gelu,
+    sigmoid: Sigmoid,
 }
 
 impl DiscriminatorConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> Discriminator<B> {
-        // Use slightly different initialization for discriminator
         let initializer = burn::nn::Initializer::KaimingUniform {
             fan_out_only: false,
-            gain: (2.0f64).sqrt(), // For LeakyReLU
+            // gain: (2.0f64).sqrt(), // For LeakyReLU
+            gain: (1.0 + LEAKY_RELU_SLOPE * LEAKY_RELU_SLOPE).sqrt(),
         };
 
-        // Conv layers with increasing channels
-        let mut conv_layers = Vec::with_capacity(self.num_conv_layers);
-        for i in 0..self.num_conv_layers {
-            let in_channels = if i == 0 {
+        // LSTM layers
+        let mut lstm_layers = Vec::with_capacity(self.num_lstm_layers); // Reusing `num_lstm_layers` for LSTM layers
+        for i in 0..self.num_lstm_layers {
+            let input_size = if i == 0 {
                 NUM_FEATURES
             } else {
-                self.conv_channels
+                self.hidden_size
             };
 
-            conv_layers.push(
-                Conv1dConfig::new(in_channels, self.conv_channels, 3)
-                    // .with_kernel_size(3)
-                    .with_stride(2)
-                    .with_padding(burn::nn::PaddingConfig1d::Explicit(1))
+            lstm_layers.push(
+                LstmConfig::new(input_size, self.hidden_size, true)
                     .with_initializer(initializer.clone())
                     .init(device),
             );
@@ -81,7 +85,7 @@ impl DiscriminatorConfig {
         let mut dense_layers = Vec::with_capacity(self.num_dense_layers);
         for i in 0..self.num_dense_layers {
             let in_features = if i == 0 {
-                self.conv_channels
+                self.hidden_size
             } else {
                 self.dense_size
             };
@@ -100,13 +104,17 @@ impl DiscriminatorConfig {
             .with_initializer(initializer)
             .init(device);
 
+        let sigmoid = Sigmoid::new();
+
         Discriminator {
-            conv_layers,
+            lstm_layers,
             dense_layers,
             output_layer,
-            activation: LeakyReluConfig::new()
-                .with_negative_slope(LEAKY_RELU_SLOPE)
-                .init(),
+            // activation: LeakyReluConfig::new()
+            //     .with_negative_slope(LEAKY_RELU_SLOPE)
+            //     .init(),
+            activation: Gelu::new(),
+            sigmoid,
         }
     }
 }
@@ -440,34 +448,62 @@ impl<B: Backend> RnnModel<B> {
     //     }
     // }
 
+    // fn discriminator_loss(
+    //     &self,
+    //     real_sequences: Tensor<B, 3>,
+    //     generated_sequences: Tensor<B, 3>,
+    // ) -> Tensor<B, 1> {
+    //     // // Real sequences should be classified as 1
+    //     // // Generated sequences should be classified as 0
+    //     let real_labels = Tensor::<B, 3>::from_data([[1]], &real_sequences.device())
+    //         .ones_like()
+    //         .int();
+    //     let fake_labels = Tensor::<B, 3>::from_data([[0]], &real_sequences.device())
+    //         .zeros_like()
+    //         .int();
+
+    //     let real_scores = self.discriminator.forward(real_sequences);
+    //     let fake_scores = self.discriminator.forward(generated_sequences);
+
+    //     // Binary cross entropy loss
+    //     let real_loss = BinaryCrossEntropyLossConfig::new().init(&real_labels.device());
+    //     let real_loss = real_loss.forward(real_scores, real_labels);
+
+    //     let fake_loss = BinaryCrossEntropyLossConfig::new().init(&fake_labels.device());
+    //     let fake_loss = fake_loss.forward(fake_scores, fake_labels);
+
+    //     real_loss + fake_loss
+    // }
+
     fn discriminator_loss(
         &self,
         real_sequences: Tensor<B, 3>,
         generated_sequences: Tensor<B, 3>,
     ) -> Tensor<B, 1> {
-        // Real sequences should be classified as 1
-        let real_labels = real_sequences
-            .clone()
-            .reshape([real_sequences.clone().dims()[0], 1])
-            .ones_like()
-            .int();
-        // Generated sequences should be classified as 0
-        let fake_labels = real_sequences
-            .clone()
-            .reshape([generated_sequences.clone().dims()[0], 1])
-            .zeros_like()
-            .int();
+        let device = &real_sequences.device();
 
+        // Real sequences should be classified as 1, generated sequences as 0
+        let batch_size = real_sequences.dims()[0];
+        let seq_len = real_sequences.dims()[1];
+
+        // Create labels with shape [batch_size, seq_len, 1]
+        let real_labels = Tensor::<B, 3>::ones([batch_size, seq_len, 1], device).int();
+        let fake_labels = Tensor::<B, 3>::zeros([batch_size, seq_len, 1], device).int();
+        // let real_labels = Tensor::<B, 2>::ones([batch_size, 1], device).int(); // Shape: [batch_size, 1]
+        // let fake_labels = Tensor::<B, 2>::zeros([batch_size, 1], device).int(); // Shape: [batch_size, 1]
+
+        // Get discriminator scores
         let real_scores = self.discriminator.forward(real_sequences);
         let fake_scores = self.discriminator.forward(generated_sequences);
 
         // Binary cross entropy loss
-        let real_loss = BinaryCrossEntropyLossConfig::new().init(&real_labels.device());
-        let real_loss = real_loss.forward(real_scores, real_labels);
+        let bce_loss = BinaryCrossEntropyLossConfig::new().init(device);
 
-        let fake_loss = BinaryCrossEntropyLossConfig::new().init(&fake_labels.device());
-        let fake_loss = fake_loss.forward(fake_scores, fake_labels);
+        // Calculate loss for real and fake sequences
+        let real_loss = bce_loss.forward(real_scores.clone(), real_labels);
+        let fake_loss = bce_loss.forward(fake_scores.clone(), fake_labels);
 
+        // Total loss
         real_loss + fake_loss
     }
 
@@ -486,53 +522,91 @@ impl<B: Backend> RnnModel<B> {
             MseLoss::new().forward(output.clone(), normalized_targets.clone(), Reduction::Mean);
 
         // Discriminator loss
+        // TODO: so is the officially d_loss or g_loss?
         let gen_loss = self.discriminator_loss(normalized_targets, output.clone());
 
         // Combined loss with weights
-        let beta = 0.01; // VAE KL weight
-        let lambda = 0.5; // GAN loss weight
-        let total_loss =
-            reconstruction_loss + kl_loss.mul_scalar(beta) + gen_loss.mul_scalar(lambda);
+        // let beta = 0.01; // VAE KL weight
+        // let lambda = 0.1; // GAN loss weight
+        // let total_loss =
+        //     reconstruction_loss + kl_loss.mul_scalar(beta) + gen_loss.mul_scalar(lambda);
 
         // Denormalize output
         let denormalized_output = normalizer.denormalize(output);
 
         RnnOutput {
-            loss: total_loss,
+            // loss: total_loss,
+            loss: gen_loss, // smooth decrease in loss with right lr
             output: denormalized_output,
             targets: item.targets,
         }
     }
 }
 
-// Discriminator implementation
+// // Discriminator implementation
+// impl<B: Backend> Discriminator<B> {
+//     fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 2> {
+//         let [batch_size, seq_len, features] = input.dims();
+
+//         // Reshape for 1D convolutions
+//         // let mut x = input.transpose(1, 2); // [batch, features, seq_len]
+//         let mut x = input.swap_dims(1, 2);
+//         // let mut x = x.transpose();
+
+//         // Conv layers
+//         for lstm in &self.lstm_layers {
+//             let (lstm_value, lstm_state) = lstm.forward(x, None);
+//             x = lstm_value;
+//             x = self.activation.forward(x);
+//         }
+
+//         // Global average pooling
+//         let x = x.mean_dim(2); // [batch, features]
+
+//         // Dense layers
+//         let flattened_size = x.dims()[1]; // Get feature dimension size after conv layers
+//         let mut x = x.reshape([batch_size, flattened_size]);
+//         for dense in &self.dense_layers {
+//             x = dense.forward(x);
+//             x = self.activation.forward(x);
+//         }
+
+//         // Output layer with sigmoid for binary classification
+//         let x = self.output_layer.forward(x);
+//         self.sigmoid.forward(x)
+//     }
+// }
+
 impl<B: Backend> Discriminator<B> {
-    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 2> {
+    fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
         let [batch_size, seq_len, features] = input.dims();
 
-        // Reshape for 1D convolutions
-        // let mut x = input.transpose(1, 2); // [batch, features, seq_len]
-        let mut x = input.swap_dims(1, 2);
+        // Transpose input for LSTM: [batch_size, seq_len, features] -> [batch_size, seq_len, features]
+        // No need to transpose for LSTM, as it expects [batch_size, seq_len, features]
+        let mut x = input;
 
-        // Conv layers
-        for conv in &self.conv_layers {
-            x = conv.forward(x);
-            x = self.activation.forward(x);
+        // LSTM layers
+        for lstm in &self.lstm_layers {
+            let (lstm_output, _) = lstm.forward(x, None); // lstm_output shape: [batch_size, seq_len, hidden_size]
+            x = lstm_output;
+            x = self.activation.forward(x); // Apply activation
         }
 
-        // Global average pooling
-        let x = x.mean_dim(2); // [batch, features]
+        // // Global average pooling along the sequence length dimension
+        // let mut x = x.mean_dim(2);
+
+        // // Flatten the tensor
+        // let mut x = x.reshape([batch_size, seq_len]); // Shape: [batch_size, seq_len]
 
         // Dense layers
-        let flattened_size = x.dims()[1]; // Get feature dimension size after conv layers
-        let mut x = x.reshape([batch_size, flattened_size]);
         for dense in &self.dense_layers {
-            x = dense.forward(x);
-            x = self.activation.forward(x);
+            x = dense.forward(x); // Shape remains [batch_size, hidden_size] or [batch_size, dense_size]
+            x = self.activation.forward(x); // Apply activation
         }
 
         // Output layer with sigmoid for binary classification
-        self.output_layer.forward(x)
+        let x = self.output_layer.forward(x); // Shape: [batch_size, 1]
+        self.sigmoid.forward(x) // Apply sigmoid
     }
 }
 

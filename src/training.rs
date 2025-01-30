@@ -51,6 +51,9 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // Config
     let optimizer = AdamWConfig::new().with_weight_decay(1.0e-8);
+    // .with_grad_clipping(Some(burn::grad_clipping::GradientClippingConfig::Value(
+    //     1.0,
+    // )));
     let config = ExpConfig::new(optimizer);
     let model = RnnModelConfig::new().init(&device);
     B::seed(config.seed);
@@ -89,9 +92,11 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
 
     // let lr_scheduler = LinearLrSchedulerConfig::new(1e-3, 1e-4, 200).init();
 
-    let lr_scheduler = ConstantLr::new(1e-4);
+    // let lr_scheduler = ConstantLr::new(1e-4); // without gan (batch size 1)
     // let lr_scheduler = ConstantLr::new(1e-3); // batch size 256
-    // let lr_scheduler = ConstantLr::new(0.1);
+
+    // testing gan
+    let lr_scheduler = ConstantLr::new(1e-6); // works much better for gan
 
     // let lr_scheduler = CosineAnnealingLrSchedulerConfig::new(1e-3, 100).init();
 
@@ -101,8 +106,6 @@ pub fn run<B: AutodiffBackend>(artifact_dir: &str, device: B::Device) {
         .metric_valid(CudaMetric::new())
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
-        // .metric_train_numeric(AccuracyMetric::new())
-        // .metric_valid_numeric(AccuracyMetric::new())
         .metric_train_numeric(LearningRateMetric::new())
         .with_file_checkpointer(CompactRecorder::new())
         .devices(vec![device.clone()])
