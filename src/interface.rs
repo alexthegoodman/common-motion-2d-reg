@@ -6,7 +6,8 @@ use burn::backend::wgpu::{Wgpu, WgpuDevice};
 use burn::{backend::Autodiff, tensor::backend::Backend};
 
 pub fn load_common_motion_2d() -> CommonMotionInference<Wgpu> {
-    let device = WgpuDevice::BestAvailable;
+    // let device = WgpuDevice::BestAvailable;
+    let device = WgpuDevice::Cpu;
 
     let inference = load_model_wgpu::<Wgpu>(device);
 
@@ -14,7 +15,7 @@ pub fn load_common_motion_2d() -> CommonMotionInference<Wgpu> {
 }
 
 pub fn load_model_wgpu<B: Backend>(device: B::Device) -> CommonMotionInference<B> {
-    println!("Loading model...");
+    println!("Loading motion model...");
     let inference: CommonMotionInference<B> = CommonMotionInference::new(device);
 
     inference

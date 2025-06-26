@@ -21,7 +21,7 @@ impl<B: Backend> CommonMotionInference<B> {
     pub fn new(device: B::Device) -> CommonMotionInference<B> {
         // Embed the model file directly in the binary
         const MODEL_BYTES: &[u8] =
-            include_bytes!("D:/tmp/cm-2d-vae-lstm-attn-stretch-dir-b1/model.bin");
+            include_bytes!("/root/models/motion/model.bin");
 
         // let record: RnnModelRecord<B> = NoStdTrainingRecorder::new()
         //     .load(format!("{artifact_dir}/model").into(), &device)
